@@ -105,7 +105,7 @@
                 }
                 setClassnames([...classnames, ...newClassnames]);
                 setInputText('');
-                setMessage(`Added ${newClassnames.length} classnames.`);
+                setMessage(`Добавлено ${newClassnames.length} класснеймов.`);
             };
 
             const handleLoadFromFile = (event) => {
@@ -221,17 +221,17 @@
 
             const generateFiles = () => {
                 if (classnames.length === 0) {
-                    setMessage('Classname list is empty!');
+                    setMessage('Поле "Внесенные класснеймы" не заполнено!');
                     return;
                 }
 
                 if (upgradeItems.some(item => !item.trim())) {
-                    setMessage('All  must be specified!');
+                    setMessage('Предметы для каждого улучшения должны быть заполнены!');
                     return;
                 }
 
                 if (actionNames.some(name => !name.trim())) {
-                    setMessage('All action names must be specified!');
+                    setMessage('Все названия крафта должны быть заполнены!');
                     return;
                 }
 
@@ -263,7 +263,7 @@
                     a.download = 'craft_files.zip';
                     a.click();
                     URL.revokeObjectURL(url);
-                    setMessage(`Generated ${allGeneratedFiles.length} files and downloaded as ZIP!`);
+                    setMessage(`Сгенерировано ${allGeneratedFiles.length} файлов и скачан ZIP архив!`);
                 });
             };
 
