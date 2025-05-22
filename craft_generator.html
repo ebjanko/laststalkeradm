@@ -84,7 +84,7 @@
                     return;
                 }
                 setUpgradeItems(Array(tier - 1).fill('').map((_, i) => `RAD_ITEM_UpWeapon_T${i + 1}`));
-                setActionNames(Array(tier - 1).fill('').map((_, i) => `Upgrade to T${i + 2}`));
+                setActionNames(Array(tier - 1).fill('').map((_, i) => `Улучшить до T${i + 2}`));
             };
 
             React.useEffect(() => {
@@ -93,14 +93,14 @@
 
             const handleAddClassnames = () => {
                 if (!inputText.trim()) {
-                    setMessage('Enter at least one classname!');
+                    setMessage('Введите хотя бы 1 класснейм!');
                     return;
                 }
                 const newClassnames = inputText.split('\n')
                     .map(line => line.trim().replace('_T1', ''))
                     .filter(line => line && !classnames.includes(line));
                 if (newClassnames.length === 0) {
-                    setMessage('No new classnames to add!');
+                    setMessage('Нет новых класснеймов для добавления!');
                     return;
                 }
                 setClassnames([...classnames, ...newClassnames]);
@@ -118,24 +118,24 @@
                         .map(line => line.trim().replace('_T1', ''))
                         .filter(line => line && !classnames.includes(line));
                     if (newClassnames.length === 0) {
-                        setMessage('No new classnames found in file!');
+                        setMessage('В файле не найдено новых класснеймов!');
                         return;
                     }
                     setClassnames([...classnames, ...newClassnames]);
-                    setMessage(`Loaded ${newClassnames.length} classnames from file.`);
+                    setMessage(`Добавлено ${newClassnames.length} класснеймов из файла.`);
                 };
                 reader.readAsText(file);
             };
 
             const clearInput = () => {
                 setInputText('');
-                setMessage('');
+                setMessage('Поле для ввода класснеймоа очищено');
             };
 
             const clearList = () => {
                 setClassnames([]);
                 setInputText('');
-                setMessage('Classname list cleared.');
+                setMessage('Добавленные класснеймы очищены.');
             };
 
             const generateCraftFiles = (weaponClassname, maxTier, upgradeItems, actionNames) => {
