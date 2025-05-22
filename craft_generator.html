@@ -1,0 +1,405 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Craft Generator - JSON Editor Site</title>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <header class="bg-blue-600 text-white shadow-md">
+        <nav class="max-w-5xl mx-auto p-4">
+            <h1 class="text-2xl font-bold">JSON Editor Site</h1>
+            <ul class="mt-2 flex space-x-4">
+                <li><a href="index.html" class="hover:underline">Home</a></li>
+                <li><a href="editor.html" class="hover:underline">JSON Editor</a></li>
+                <li><a href="craft_generator.html" class="hover:underline">Craft Generator</a></li>
+                <li><a href="about.html" class="hover:underline">About</a></li>
+                <li><a href="instructions.html" class="hover:underline">Instructions</a></li>
+                <li><a href="contact.html" class="hover:underline">Contact</a></li>
+            </ul>
+        </nav>
+    </header>
+    <div id="root"></div>
+    <footer class="bg-gray-800 text-white text-center p-4 mt-6">
+        <p>© 2025 JSON Editor Site. All rights reserved.</p>
+    </footer>
+    <script type="text/babel">
+        function App() {
+            const [maxTier, setMaxTier] = React.useState(3);
+            const [upgradeItems, setUpgradeItems] = React.useState([]);
+            const [actionNames, setActionNames] = React.useState([]);
+            const [classnames, setClassnames] = React.useState([]);
+            const [inputText, setInputText] = React.useState('');
+            const [message, setMessage] = React.useState('');
+
+            const updateFields = () => {
+                const tier = parseInt(maxTier) || 3;
+                if (tier < 2) {
+                    setMessage('Max tier must be at least 2!');
+                    setMaxTier(3);
+                    return;
+                }
+                setUpgradeItems(Array(tier - 1).fill('').map((_, i) => `RAD_ITEM_UpWeapon_T${i + 1}`));
+                setActionNames(Array(tier - 1).fill('').map((_, i) => `Upgrade to T${i + 2}`));
+            };
+
+            React.useEffect(() => {
+                updateFields();
+            }, [maxTier]);
+
+            const handleAddClassnames = () => {
+                if (!inputText.trim()) {
+                    setMessage('Enter at least one classname!');
+                    return;
+                }
+                const newClassnames = inputText.split('\n')
+                    .map(line => line.trim().replace('_T1', ''))
+                    .filter(line => line && !classnames.includes(line));
+                if (newClassnames.length === 0) {
+                    setMessage('No new classnames to add!');
+                    return;
+                }
+                setClassnames([...classnames, ...newClassnames]);
+                setInputText('');
+                setMessage(`Added ${newClassnames.length} classnames.`);
+            };
+
+            const handleLoadFromFile = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const text = e.target.result;
+                    const newClassnames = text.split('\n')
+                        .map(line => line.trim().replace('_T1', ''))
+                        .filter(line => line && !classnames.includes(line));
+                    if (newClassnames.length === 0) {
+                        setMessage('No new classnames found in file!');
+                        return;
+                    }
+                    setClassnames([...classnames, ...newClassnames]);
+                    setMessage(`Loaded ${newClassnames.length} classnames from file.`);
+                };
+                reader.readAsText(file);
+            };
+
+            const clearInput = () => {
+                setInputText('');
+                setMessage('');
+            };
+
+            const clearList = () => {
+                setClassnames([]);
+                setInputText('');
+                setMessage('Classname list cleared.');
+            };
+
+            const generateCraftFiles = (weaponClassname, maxTier, upgradeItems, actionNames) => {
+                const cleanClassname = weaponClassname.replace('_T1', '');
+                const generatedFiles = [];
+                const recipeLines = [];
+
+                if (maxTier < 2) {
+                    setMessage('Max tier must be at least 2!');
+                    return { files: [], recipes: [] };
+                }
+
+                if (upgradeItems.length < maxTier - 1 || actionNames.length < maxTier - 1) {
+                    setMessage(`Not enough upgrade items or action names for ${maxTier - 1} tiers!`);
+                    return { files: [], recipes: [] };
+                }
+
+                for (let tier = 1; tier < maxTier; tier++) {
+                    const upgradeItem = upgradeItems[tier - 1];
+                    const actionName = actionNames[tier - 1];
+
+                    const craftTemplate = `class Craft${cleanClassname}_T${tier} extends RecipeBase
+{
+    override void Init()
+    {
+        m_Name = "${actionName}";
+        m_IsInstaRecipe = false;
+        m_AnimationLength = 2;
+        m_Specialty = -0.02;
+
+        m_MinDamageIngredient[0] = -1;
+        m_MaxDamageIngredient[0] = 3;
+        m_MinQuantityIngredient[0] = 1;
+        m_MaxQuantityIngredient[0] = -1;
+        m_MinDamageIngredient[1] = -1;
+        m_MaxDamageIngredient[1] = 3;
+        m_MinQuantityIngredient[1] = 1;
+        m_MaxQuantityIngredient[1] = -1;
+
+        InsertIngredient(0, "${cleanClassname}_T${tier}");
+        m_IngredientAddHealth[0] = 0;
+        m_IngredientSetHealth[0] = -1;
+        m_IngredientAddQuantity[0] = 0;
+        m_IngredientDestroy[0] = true;
+        m_IngredientUseSoftSkills[0] = false;
+
+        InsertIngredient(1, "${upgradeItem}");
+        m_IngredientAddHealth[1] = 0;
+        m_IngredientSetHealth[1] = -1;
+        m_IngredientAddQuantity[1] = 0;
+        m_IngredientDestroy[1] = true;
+        m_IngredientUseSoftSkills[1] = false;
+
+        AddResult("${cleanClassname}_T${tier + 1}");
+        m_ResultSetFullQuantity[0] = false;
+        m_ResultSetQuantity[0] = -1;
+        m_ResultSetHealth[0] = -1;
+        m_ResultInheritsHealth[0] = 0;
+        m_ResultInheritsColor[0] = -1;
+        m_ResultToInventory[0] = -2;
+        m_ResultUseSoftSkills[0] = false;
+        m_ResultReplacesIngredient[0] = -1;
+    }
+
+    override bool CanDo(ItemBase ingredients[], PlayerBase player)
+    {
+        return true;
+    }
+
+    override void Do(ItemBase ingredients[], PlayerBase player, array<ItemBase> results, float specialty_weight)
+    {
+        Debug.Log("Recipe Do method called", "recipes");
+    }
+};`;
+
+                    const fileName = `Craft${cleanClassname}_T${tier}.c`;
+                    generatedFiles.push({ name: `craft_files/${fileName}`, content: craftTemplate });
+                    recipeLines.push(`RegisterRecipe(new Craft${cleanClassname}_T${tier});`);
+                }
+
+                return { files: generatedFiles, recipes: recipeLines };
+            };
+
+            const generateFiles = () => {
+                if (classnames.length === 0) {
+                    setMessage('Classname list is empty!');
+                    return;
+                }
+
+                if (upgradeItems.some(item => !item.trim())) {
+                    setMessage('All upgrade items must be specified!');
+                    return;
+                }
+
+                if (actionNames.some(name => !name.trim())) {
+                    setMessage('All action names must be specified!');
+                    return;
+                }
+
+                const zip = new JSZip();
+                const craftFilesFolder = zip.folder('craft_files');
+                let allGeneratedFiles = [];
+                let allRecipeLines = [];
+
+                classnames.forEach(classname => {
+                    const { files, recipes } = generateCraftFiles(classname, maxTier, upgradeItems, actionNames);
+                    allGeneratedFiles = allGeneratedFiles.concat(files);
+                    allRecipeLines = allRecipeLines.concat(recipes);
+                });
+
+                if (allRecipeLines.length > 0) {
+                    const registerContent = allRecipeLines.sort().join('\n');
+                    zip.file('craft_files/recipes_register.c', registerContent);
+                    allGeneratedFiles.push({ name: 'craft_files/recipes_register.c', content: registerContent });
+                }
+
+                allGeneratedFiles.forEach(file => {
+                    craftFilesFolder.file(file.name.split('/')[1], file.content);
+                });
+
+                zip.generateAsync({ type: 'blob' }).then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'craft_files.zip';
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    setMessage(`Generated ${allGeneratedFiles.length} files and downloaded as ZIP!`);
+                });
+            };
+
+            return (
+                <div className="max-w-5xl mx-auto p-6 bg-white rounded-lg shadow-md mt-6">
+                    <h2 className="text-2xl font-bold mb-6 text-center">DayZ Craft File Generator</h2>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Max Tier (e.g., 3 for T3)
+                        </label>
+                        <input
+                            type="number"
+                            min="2"
+                            value={maxTier}
+                            onChange={(e) => setMaxTier(e.target.value)}
+                            className="w-20 p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="mb-4">
+                        <h3 className="text-lg font-semibold mb-2">Upgrade Items</h3>
+                        {upgradeItems.map((item, index) => (
+                            <div key={index} className="mb-2">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    Item for T{index + 1}→T{index + 2}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={item}
+                                    onChange={(e) => {
+                                        const newItems = [...upgradeItems];
+                                        newItems[index] = e.target.value;
+                                        setUpgradeItems(newItems);
+                                    }}
+                                    className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mb-4">
+                        <h3 className="text-lg font-semibold mb-2">Action Names</h3>
+                        {actionNames.map((name, index) => (
+                            <div key={index} className="mb-2">
+                                <label className="block text-sm font-medium text-gray-700">
+                                    Action Name for T{index + 1}→T{index + 2}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={name}
+                                    onChange={(e) => {
+                                        const newNames = [...actionNames];
+                                        newNames[index] = e.target.value;
+                                        setActionNames(newNames);
+                                    }}
+                                    className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Enter Classnames (one per line)
+                        </label>
+                        <textarea
+                            value={inputText}
+                            onChange={(e) => setInputText(e.target.value)}
+                            rows="5"
+                            className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="flex space-x-4 mb-4">
+                        <button
+                            onClick={handleAddClassnames}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            Add Classnames
+                        </button>
+                        <button
+                            onClick={() => document.getElementById('fileInput').click()}
+                            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            Load from File
+                        </button>
+                        <input
+                            id="fileInput"
+                            type="file"
+                            accept=".txt"
+                            onChange={handleLoadFromFile}
+                            className="hidden"
+                        />
+                        <button
+                            onClick={clearInput}
+                            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                        >
+                            Clear Input
+                        </button>
+                        <button
+                            onClick={clearList}
+                            className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                        >
+                            Clear List
+                        </button>
+                    </div>
+
+                    {classnames.length > 0 && (
+                        <div className="mb-4">
+                            <h3 className="text-lg font-semibold mb-2">Added Classnames</h3>
+                            <pre className="bg-gray-800 text-white p-4 rounded-md overflow-auto max-h-48">
+                                {classnames.join('\n')}
+                            </pre>
+                        </div>
+                    )}
+
+                    <div className="mb-4">
+                        <button
+                            onClick={generateFiles}
+                            className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                            Generate Files
+                        </button>
+                    </div>
+
+                    {message && (
+                        <div className="p-4 bg-gray-100 rounded-md">
+                            <p className="text-sm text-gray-700">{message}</p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        ReactDOM.render(<App />, document.getElementById('root'));
+    </script>
+</body>
+</html>
