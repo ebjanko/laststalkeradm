@@ -149,7 +149,7 @@
                 }
 
                 if (upgradeItems.length < maxTier - 1 || actionNames.length < maxTier - 1) {
-                    setMessage(`Not enough upgrade items or action names for ${maxTier - 1} tiers!`);
+                    setMessage(`Not enough  or action names for ${maxTier - 1} tiers!`);
                     return { files: [], recipes: [] };
                 }
 
@@ -226,7 +226,7 @@
                 }
 
                 if (upgradeItems.some(item => !item.trim())) {
-                    setMessage('All upgrade items must be specified!');
+                    setMessage('All  must be specified!');
                     return;
                 }
 
@@ -285,7 +285,7 @@
                     </div>
 
                     <div className="mb-4">
-                        <h3 className="text-lg font-semibold mb-2">Upgrade Items</h3>
+                        <h3 className="text-lg font-semibold mb-2">Предметы для улучшения</h3>
                         {upgradeItems.map((item, index) => (
                             <div key={index} className="mb-2">
                                 <label className="block text-sm font-medium text-gray-700">
