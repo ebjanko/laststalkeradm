@@ -82,6 +82,14 @@
         ];
         let usedCombinations = [];
 
+        function isPositiveEffect(key, value) {
+            const negativeEffectProps = ['radiationPerTick', 'shockPerTick', 'cutsPerTick', 'legFracture'];
+            if (negativeEffectProps.includes(key)) {
+                return value < 0; // Защита или лечение — позитивный эффект
+            }
+            return value > 0; // Для остальных свойств положительное значение — позитивный эффект
+        }
+
         function getRandomItem(arr) {
             return arr[Math.floor(Math.random() * arr.length)];
         }
@@ -129,11 +137,10 @@
                     levels[2][prop] = baseValue;
                     levels[3][prop] = Math.random() < 0.5 ? 1 : -1;
                 } else if (prop === 'zombieDamageAbsorption' || prop === 'animalDamageAbsorption') {
-                    baseValue = -2;
-                    levels[0][prop] = baseValue;
-                    levels[1][prop] = 2;
-                    levels[2][prop] = 2;
-                    levels[3][prop] = 2;
+                    levels[0][prop] = 0; // T1: нет защиты
+                    levels[1][prop] = 1; // T2: поглощает 1 удар
+                    levels[2][prop] = 2; // T3: поглощает 2 удара
+                    levels[3][prop] = 3; // T4: поглощает 3 удара
                 } else if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(prop)) {
                     baseValue = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
                     levels[0][prop] = baseValue;
@@ -149,13 +156,11 @@
                 }
             });
 
-            // Ensure L4 has one negative (non-anomaly protection)
-            const nonAnomalyProps = selectedProps.filter(p => !p.includes('AnomalyProtection') && p !== 'legFracture');
+            // Ensure T4 has one negative (non-anomaly protection, excluding zombie/animal absorption)
+            const nonAnomalyProps = selectedProps.filter(p => !p.includes('AnomalyProtection') && p !== 'legFracture' && p !== 'zombieDamageAbsorption' && p !== 'animalDamageAbsorption');
             if (nonAnomalyProps.length > 0) {
                 const propToNegate = getRandomItem(nonAnomalyProps);
-                if (propToNegate === 'zombieDamageAbsorption' || propToNegate === 'animalDamageAbsorption') {
-                    levels[3][propToNegate] = -2;
-                } else if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(propToNegate)) {
+                if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(propToNegate)) {
                     levels[3][propToNegate] = Math.abs(levels[0][propToNegate]);
                 } else {
                     levels[3][propToNegate] = levels[0][propToNegate];
@@ -267,17 +272,17 @@
                     const card = document.createElement('div');
                     card.className = 'bg-gray-800 p-4 rounded-lg shadow-lg';
                     card.innerHTML = `
-                        <h3 class="text-lg font-semibold mb-2">Уровень ${index + 1}</h3>
+                        <h3 class="text-lg font-semibold mb-2">Tier ${index + 1}</h3>
                         <ul class="text-sm">
                             ${Object.entries(level).map(([key, value]) => `
-                                <li>${key}: <span class="${value >= 0 && !['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(key) ? 'text-green-400' : 'text-red-400'}">${value}</span></li>
+                                <li>${key}: <span class="${isPositiveEffect(key, value) ? 'text-green-400' : 'text-red-400'}">${value}</span></li>
                             `).join('')}
                         </ul>
                     `;
                     levelsDiv.appendChild(card);
 
                     // Generate .c config
-                    generatedConfig.push(`    class Static_ON_Art_${cleanName}_L${index + 1}`);
+                    generatedConfig.push(`    class Static_ON_Art_${cleanName}_T${index + 1}`);
                     generatedConfig.push('    {');
                     Object.entries(level).forEach(([key, value]) => {
                         generatedConfig.push(`        ${key} = ${value};`);
@@ -285,8 +290,8 @@
                     generatedConfig.push('    };');
 
                     // Generate JSON entry
-                    const jsonArtefact = mapPropertiesToJson(level, `${cleanName}_L${index + 1}`, `${comment} L${index + 1}`);
-                    jsonArtefact.Classname = `ON_Art_${cleanName}_L${index + 1}`;
+                    const jsonArtefact = mapPropertiesToJson(level, `${cleanName}_T${index + 1}`, `${comment} T${index + 1}`);
+                    jsonArtefact.Classname = `ON_Art_${cleanName}_T${index + 1}`;
                     jsonOutput.Artefacts.push(jsonArtefact);
                 });
                 
