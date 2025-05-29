@@ -46,19 +46,19 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-white font-sans">
-    <nav class="bg-gray-800 p-4">
-        <div class="container mx-auto flex justify-between items-center">
-            <h1 class="text-xl font-bold">Last Stalker для админов</h1>
-            <div class="space-x-4">
-                <a href="#" class="text-gray-300 hover:text-white">Домой</a>
-                <a href="#" class="text-gray-300 hover:text-white">Редактор JSON схронов</a>
-                <a href="#" class="text-gray-300 hover:text-white">Генератор рецептов</a>
-                <a href="#" class="text-gray-300 hover:text-white">Про нас</a>
-                <a href="#" class="text-gray-300 hover:text-white">Инструкции</a>
-                <a href="#" class="text-gray-300 hover:text-white">Контакты</a>
-            </div>
-        </div>
-    </nav>
+    <header class="bg-blue-600 text-white shadow-md">
+        <nav class="max-w-5xl mx-auto p-4">
+            <h1 class="text-2xl font-bold">Last Stalker для админов</h1>
+            <ul class="mt-2 flex space-x-4">
+                <li><a href="index.html" class="hover:underline">Домой</a></li>
+                <li><a href="editor.html" class="hover:underline">Редактор JSON схронов</a></li>
+                <li><a href="craft_generator.html" class="hover:underline">Генератор рецептов</a></li>
+                <li><a href="about.html" class="hover:underline">Про нас</a></li>
+                <li><a href="instructions.html" class="hover:underline">Инструкции</a></li>
+                <li><a href="contact.html" class="hover:underline">Контакты</a></li>
+            </ul>
+        </nav>
+    </header>
 
     <div class="container mx-auto p-6">
         <h1 class="text-3xl font-bold mb-6 text-center">Экстрактор класснеймов</h1>
@@ -77,28 +77,84 @@
             <label for="classnames" class="block text-sm font-medium text-gray-300 mb-2">Извлечённые класснеймы (можно скопировать вручную):</label>
             <p id="status" class="text-sm text-gray-400 mb-2"></p>
             <textarea id="classnames" rows="10" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" readonly></textarea>
+            <p id="debug" class="text-sm text-gray-500 mt-2 hidden"></p>
         </div>
     </div>
 
     <script>
+        function extractCfgVehiclesContent(content) {
+            // Ищем начало секции CfgVehicles с учётом пробелов и переносов
+            const startRegex = /class\s+CfgVehicles\s*\{/;
+            const startMatch = content.match(startRegex);
+            if (!startMatch) {
+                return '';
+            }
+
+            const startIndex = startMatch.index + startMatch[0].length;
+            let braceCount = 1;
+            let index = startIndex;
+
+            // Игнорируем комментарии и подсчитываем скобки
+            let inComment = false;
+            while (index < content.length && braceCount > 0) {
+                const char = content[index];
+                if (char === '/' && content[index + 1] === '/') {
+                    // Пропускаем однострочный комментарий
+                    while (index < content.length && content[index] !== '\n') {
+                        index++;
+                    }
+                } else if (char === '/' && content[index + 1] === '*') {
+                    // Начало многострочного комментария
+                    inComment = true;
+                    index += 2;
+                    while (inComment && index < content.length) {
+                        if (content[index] === '*' && content[index + 1] === '/') {
+                            inComment = false;
+                            index += 2;
+                        } else {
+                            index++;
+                        }
+                    }
+                } else if (!inComment) {
+                    if (char === '{') {
+                        braceCount++;
+                    } else if (char === '}') {
+                        braceCount--;
+                    }
+                    index++;
+                } else {
+                    index++;
+                }
+            }
+
+            if (braceCount !== 0) {
+                return '';
+            }
+
+            return content.substring(startIndex, index - 1).trim();
+        }
+
         function extractClassnames(content) {
-            // Извлекаем секцию CfgVehicles
-            const cfgVehiclesMatch = content.match(/class\s+CfgVehicles\s*\{([\s\S]*?)\};/);
-            if (!cfgVehiclesMatch) {
+            const cfgVehiclesContent = extractCfgVehiclesContent(content);
+            if (!cfgVehiclesContent) {
                 return [];
             }
 
-            const cfgVehiclesContent = cfgVehiclesMatch[1];
-            // Регулярное выражение для поиска всех классов
-            const regex = /class\s+([A-Za-z0-9_]+)\s*:/g;
+            // Извлекаем классы
+            const regex = /class\s+([A-Za-z0-9_]+)\b\s*:/g;
             const matches = [...cfgVehiclesContent.matchAll(regex)];
-            // Извлекаем полные имена классов
-            return matches.map(match => match[1]);
+            const classnames = matches.map(match => match[1]);
+
+            // Отладка: возвращаем первые 100 символов содержимого для проверки
+            return {
+                classnames,
+                debug: cfgVehiclesContent.slice(0, 100) + (cfgVehiclesContent.length > 100 ? '...' : '')
+            };
         }
 
         function handleFileUpload(event) {
             const files = event.target.files;
-            if (files.length === 0) {
+            if (!files.length) {
                 alert('Пожалуйста, выберите хотя бы один файл.');
                 return;
             }
@@ -106,19 +162,20 @@
             const allClassnames = new Set();
             let filesProcessed = 0;
             let filesWithErrors = 0;
+            let debugInfo = '';
 
             Array.from(files).forEach(file => {
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     const content = e.target.result;
-                    const classnames = extractClassnames(content);
+                    const { classnames, debug } = extractClassnames(content);
                     if (classnames.length === 0) {
                         filesWithErrors++;
                     }
                     classnames.forEach(classname => allClassnames.add(classname));
+                    debugInfo += `Файл: ${file.name}, начало секции: ${debug}\n`;
                     filesProcessed++;
 
-                    // Когда все файлы обработаны
                     if (filesProcessed === files.length) {
                         const sortedClassnames = Array.from(allClassnames).sort();
                         if (sortedClassnames.length === 0) {
@@ -126,15 +183,16 @@
                             return;
                         }
 
-                        // Отображаем класснеймы и статус
                         const output = document.getElementById('output');
                         const textarea = document.getElementById('classnames');
                         const status = document.getElementById('status');
+                        const debugEl = document.getElementById('debug');
                         textarea.value = sortedClassnames.join('\n');
                         status.textContent = `Извлечено ${sortedClassnames.length} уникальных класснеймов из ${filesProcessed} файлов. Ошибок: ${filesWithErrors}.`;
+                        debugEl.textContent = debugInfo;
+                        debugEl.classList.remove('hidden');
                         output.classList.remove('hidden');
 
-                        // Активируем кнопку скачивания
                         const downloadBtn = document.getElementById('download-btn');
                         downloadBtn.classList.remove('hidden');
                         downloadBtn.onclick = () => {
