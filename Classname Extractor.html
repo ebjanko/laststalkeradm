@@ -1,0 +1,125 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Экстрактор класснеймов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center">Экстрактор класснеймов</h1>
+        
+        <div class="mb-6">
+            <label for="config-file" class="block text-sm font-medium text-gray-300 mb-2">Загрузить config.cpp:</label>
+            <input type="file" id="config-file" accept=".cpp,.txt" class="p-2 w-full bg-gray-700 border rounded-lg text-gray-200">
+        </div>
+        
+        <div class="flex space-x-4 mb-6">
+            <button id="extract-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg">Извлечь класснеймы</button>
+            <button id="download-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg hidden">Скачать classnames.txt</button>
+        </div>
+        
+        <div id="output" class="mb-6 hidden">
+            <label for="classnames" class="block text-sm font-medium text-gray-300 mb-2">Извлечённые класснеймы (можно скопировать вручную):</label>
+            <textarea id="classnames" rows="10" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" readonly></textarea>
+        </div>
+    </div>
+
+    <script>
+        function extractClassnames(content) {
+            // Извлекаем секцию CfgVehicles
+            const cfgVehiclesMatch = content.match(/class\s+CfgVehicles\s*{([\s\S]*?)};/);
+            if (!cfgVehiclesMatch) {
+                return [];
+            }
+
+            const cfgVehiclesContent = cfgVehiclesMatch[1];
+            // Регулярное выражение для поиска всех классов
+            const regex = /class\s+([A-Za-z0-9_]+)\s*:/g;
+            const matches = [...cfgVehiclesContent.matchAll(regex)];
+            // Извлекаем полные имена классов
+            return matches.map(match => match[1]);
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const content = e.target.result;
+                    const classnames = extractClassnames(content);
+                    if (classnames.length === 0) {
+                        alert('Класснеймы не найдены в секции CfgVehicles.');
+                        return;
+                    }
+                    
+                    // Отображаем класснеймы
+                    const output = document.getElementById('output');
+                    const textarea = document.getElementById('classnames');
+                    textarea.value = classnames.join('\n');
+                    output.classList.remove('hidden');
+
+                    // Активируем кнопку скачивания
+                    const downloadBtn = document.getElementById('download-btn');
+                    downloadBtn.classList.remove('hidden');
+                    downloadBtn.onclick = () => {
+                        const blob = new Blob([classnames.join('\n')], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'classnames.txt';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                    };
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        document.getElementById('config-file').addEventListener('change', handleFileUpload);
+        document.getElementById('extract-btn').addEventListener('click', () => {
+            document.getElementById('config-file').click();
+        });
+    </script>
+</body>
+</html>
