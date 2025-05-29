@@ -43,26 +43,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Экстрактор класснеймов</title>
-    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.20.15/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-white font-sans">
-   <header class="bg-blue-600 text-white shadow-md">
-        <nav class="max-w-5xl mx-auto p-4">
-            <h1 class="text-2xl font-bold">Last Stalker для админов</h1>
-            <ul class="mt-2 flex space-x-4">
-                <li><a href="index.html" class="hover:underline">Домой</a></li>
-                <li><a href="editor.html" class="hover:underline">Редактор JSON схронов</a></li>
-                <li><a href="craft_generator.html" class="hover:underline">Генератор рецептов</a></li>
-                <li><a href="about.html" class="hover:underline">Про нас</a></li>
-                <li><a href="instructions.html" class="hover:underline">Инструкции</a></li>
-                <li><a href="contact.html" class="hover:underline">Контакты</a></li>
-            </ul>
-        </nav>
-    </header>
+    <nav class="bg-gray-800 p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold">Last Stalker для админов</h1>
+            <div class="space-x-4">
+                <a href="#" class="text-gray-300 hover:text-white">Домой</a>
+                <a href="#" class="text-gray-300 hover:text-white">Редактор JSON схронов</a>
+                <a href="#" class="text-gray-300 hover:text-white">Генератор рецептов</a>
+                <a href="#" class="text-gray-300 hover:text-white">Про нас</a>
+                <a href="#" class="text-gray-300 hover:text-white">Инструкции</a>
+                <a href="#" class="text-gray-300 hover:text-white">Контакты</a>
+            </div>
+        </div>
+    </nav>
+
     <div class="container mx-auto p-6">
         <h1 class="text-3xl font-bold mb-6 text-center">Экстрактор класснеймов</h1>
         
@@ -78,6 +75,7 @@
         
         <div id="output" class="mb-6 hidden">
             <label for="classnames" class="block text-sm font-medium text-gray-300 mb-2">Извлечённые класснеймы (можно скопировать вручную):</label>
+            <p id="status" class="text-sm text-gray-400 mb-2"></p>
             <textarea id="classnames" rows="10" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" readonly></textarea>
         </div>
     </div>
@@ -85,7 +83,7 @@
     <script>
         function extractClassnames(content) {
             // Извлекаем секцию CfgVehicles
-            const cfgVehiclesMatch = content.match(/class\s+CfgVehicles\s*{([\s\S]*?)};/);
+            const cfgVehiclesMatch = content.match(/class\s+CfgVehicles\s*\{([\s\S]*?)\};/);
             if (!cfgVehiclesMatch) {
                 return [];
             }
@@ -107,12 +105,16 @@
 
             const allClassnames = new Set();
             let filesProcessed = 0;
+            let filesWithErrors = 0;
 
             Array.from(files).forEach(file => {
                 const reader = new FileReader();
                 reader.onload = function(e) {
                     const content = e.target.result;
                     const classnames = extractClassnames(content);
+                    if (classnames.length === 0) {
+                        filesWithErrors++;
+                    }
                     classnames.forEach(classname => allClassnames.add(classname));
                     filesProcessed++;
 
@@ -124,10 +126,12 @@
                             return;
                         }
 
-                        // Отображаем класснеймы
+                        // Отображаем класснеймы и статус
                         const output = document.getElementById('output');
                         const textarea = document.getElementById('classnames');
+                        const status = document.getElementById('status');
                         textarea.value = sortedClassnames.join('\n');
+                        status.textContent = `Извлечено ${sortedClassnames.length} уникальных класснеймов из ${filesProcessed} файлов. Ошибок: ${filesWithErrors}.`;
                         output.classList.remove('hidden');
 
                         // Активируем кнопку скачивания
@@ -142,6 +146,13 @@
                             a.click();
                             URL.revokeObjectURL(url);
                         };
+                    }
+                };
+                reader.onerror = function() {
+                    filesWithErrors++;
+                    filesProcessed++;
+                    if (filesProcessed === files.length) {
+                        alert('Ошибка чтения одного или нескольких файлов.');
                     }
                 };
                 reader.readAsText(file);
