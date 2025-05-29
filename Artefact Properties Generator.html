@@ -1,0 +1,375 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор свойств артефактов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center">Генератор свойств артефактов</h1>
+        
+        <div class="mb-6">
+            <label for="artefact-file" class="block text-sm font-medium text-gray-300 mb-2">Загрузить список артефактов (.txt):</label>
+            <input type="file" id="artefact-file" accept=".txt" class="p-2 w-full bg-gray-700 border rounded-lg text-gray-200">
+        </div>
+        
+        <div class="mb-6">
+            <label for="artefact-list" class="block text-sm font-medium text-gray-300 mb-2">Или введите имена артефактов (одно на строку):</label>
+            <textarea id="artefact-list" rows="5" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" placeholder="Zavtrak_Turista\nWeird_Bolt"></textarea>
+        </div>
+        
+        <div class="flex space-x-4 mb-6">
+            <button id="generate-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg">Сгенерировать эффекты</button>
+            <button id="copy-btn" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg hidden">Скопировать конфиг .c</button>
+            <button id="download-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg hidden">Скачать ArtEffects.json</button>
+        </div>
+        
+        <div id="config-output" class="mb-6 hidden">
+            <label for="config-text" class="block text-sm font-medium text-gray-300 mb-2">Сгенерированный конфиг .c (можно скопировать вручную):</label>
+            <textarea id="config-text" rows="10" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" readonly></textarea>
+        </div>
+        
+        <div id="artefact-details" class="space-y-6"></div>
+    </div>
+
+    <script>
+        const properties = [
+            'healthPerTick', 'staminaPerTick', 'radiationPerTick', 'bloodPerTick', 'foodPerTick', 'waterPerTick',
+            'temperaturePerTick', 'shockPerTick', 'cutsPerTick', 'zombieDamageAbsorption', 'animalDamageAbsorption',
+            'legFracture', 'gravityAnomalyProtection', 'thermalAnomalyProtection', 'electricAnomalyProtection',
+            'chemicalAnomalyProtection'
+        ];
+        let usedCombinations = [];
+
+        function getRandomItem(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function getUniquePropertyCombination() {
+            const maxCombinations = 1820; // C(16, 4)
+            if (usedCombinations.length >= maxCombinations) {
+                console.warn('Все уникальные комбинации свойств исчерпаны. Используется случайная комбинация.');
+                return shuffleArray([...properties]).slice(0, 4);
+            }
+
+            let selectedProps;
+            do {
+                selectedProps = shuffleArray([...properties]).slice(0, 4).sort();
+            } while (usedCombinations.includes(selectedProps.join(',')));
+
+            usedCombinations.push(selectedProps.join(','));
+            return selectedProps;
+        }
+
+        function generateArtefactProperties() {
+            const selectedProps = getUniquePropertyCombination();
+            const levels = [{}, {}, {}, {}];
+
+            selectedProps.forEach(prop => {
+                let baseValue;
+                if (prop.includes('AnomalyProtection')) {
+                    baseValue = 0.05;
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = baseValue;
+                    levels[2][prop] = 0.1;
+                    levels[3][prop] = 0.15;
+                } else if (prop === 'legFracture') {
+                    baseValue = 1;
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = baseValue;
+                    levels[2][prop] = baseValue;
+                    levels[3][prop] = Math.random() < 0.5 ? 1 : -1;
+                } else if (prop === 'zombieDamageAbsorption' || prop === 'animalDamageAbsorption') {
+                    baseValue = -2;
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = 2;
+                    levels[2][prop] = 2;
+                    levels[3][prop] = 2;
+                } else if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(prop)) {
+                    baseValue = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = baseValue;
+                    levels[2][prop] = -baseValue;
+                    levels[3][prop] = -baseValue;
+                } else {
+                    baseValue = -(Math.floor(Math.random() * 4) + 2); // -2, -3, -4, -5
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = -baseValue;
+                    levels[2][prop] = -baseValue;
+                    levels[3][prop] = -baseValue;
+                }
+            });
+
+            // Ensure L4 has one negative (non-anomaly protection)
+            const nonAnomalyProps = selectedProps.filter(p => !p.includes('AnomalyProtection') && p !== 'legFracture');
+            if (nonAnomalyProps.length > 0) {
+                const propToNegate = getRandomItem(nonAnomalyProps);
+                if (propToNegate === 'zombieDamageAbsorption' || propToNegate === 'animalDamageAbsorption') {
+                    levels[3][propToNegate] = -2;
+                } else if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(propToNegate)) {
+                    levels[3][propToNegate] = Math.abs(levels[0][propToNegate]);
+                } else {
+                    levels[3][propToNegate] = levels[0][propToNegate];
+                }
+            }
+
+            return levels;
+        }
+
+        function mapPropertiesToJson(level, cleanName, comment) {
+            const artefactTemplate = {
+                comment: comment || cleanName,
+                Classname: `ON_Art_${cleanName}`,
+                RemoveArtQuantityTick: 0.0,
+                RemoveArtHealthTick: 0.0,
+                Health: 0.0,
+                Blood: 0.0,
+                Shock: 0.0,
+                Stamina: 0.0,
+                Weight: 0.0,
+                Protection: {
+                    ProjectResistCount: 0,
+                    AnimalResistCount: 0,
+                    InfectedResistCount: 0,
+                    ExplosiveResistCount: 0
+                },
+                Blowout: {
+                    ImmunityBlowout: 0
+                },
+                AnomProtect: {
+                    ProtectElectraAnomaly: 0.0,
+                    ProtectGraviAnomaly: 0.0,
+                    ProtectFireAnomaly: 0.0,
+                    ProtectHimicAnomaly: 0.0
+                },
+                RadiationParams: {
+                    Radiation: 0,
+                    RadiationResist: 0,
+                    ProtectRadiationPercent: 0.0
+                },
+                RangRepParams: {
+                    RangPoint: 0,
+                    MultiplierRangPoint: 0.0,
+                    ReputationPoint: 0,
+                    MultiplierReputationPoint: 0.0
+                },
+                PsiSystemParams: {
+                    PsiResistPercent: 0
+                },
+                Eat: 0.0,
+                Water: 0.0,
+                HeatComfort: 0.0,
+                Bleeding: 0,
+                BrokenLegs: 0,
+                ArtefactBelts: ["classname", "classname"],
+                ArtefactCases: ["RAD_PKA_Glass"]
+            };
+
+            Object.entries(level).forEach(([prop, value]) => {
+                switch (prop) {
+                    case 'healthPerTick': artefactTemplate.Health = value; break;
+                    case 'bloodPerTick': artefactTemplate.Blood = value; break;
+                    case 'staminaPerTick': artefactTemplate.Stamina = value; break;
+                    case 'radiationPerTick': artefactTemplate.RadiationParams.Radiation = value; break;
+                    case 'foodPerTick': artefactTemplate.Eat = value; break;
+                    case 'waterPerTick': artefactTemplate.Water = value; break;
+                    case 'temperaturePerTick': artefactTemplate.HeatComfort = value; break;
+                    case 'shockPerTick': artefactTemplate.Shock = value; break;
+                    case 'cutsPerTick': artefactTemplate.Bleeding = value; break;
+                    case 'zombieDamageAbsorption': artefactTemplate.Protection.InfectedResistCount = value; break;
+                    case 'animalDamageAbsorption': artefactTemplate.Protection.AnimalResistCount = value; break;
+                    case 'legFracture': artefactTemplate.BrokenLegs = value; break;
+                    case 'gravityAnomalyProtection': artefactTemplate.AnomProtect.ProtectGraviAnomaly = value; break;
+                    case 'thermalAnomalyProtection': artefactTemplate.AnomProtect.ProtectFireAnomaly = value; break;
+                    case 'electricAnomalyProtection': artefactTemplate.AnomProtect.ProtectElectraAnomaly = value; break;
+                    case 'chemicalAnomalyProtection': artefactTemplate.AnomProtect.ProtectHimicAnomaly = value; break;
+                }
+            });
+
+            return artefactTemplate;
+        }
+
+        function displayArtefacts(artefactNames) {
+            usedCombinations = []; // Reset combinations
+            const detailsDiv = document.getElementById('artefact-details');
+            detailsDiv.innerHTML = '';
+            const generatedConfig = ['// ON_Artefacts_Pack/Scripts/4_World/ArtefactsEffects.c', 'class ArtefactEffects', '{'];
+            const jsonOutput = {
+                CheckArtsInInventoryTime: 10,
+                MaxProtectRadiationPercent: 50.0,
+                MaxMultiplierRangPoint: 2.5,
+                MaxMultiplierReputationPoint: 1.5,
+                Artefacts: []
+            };
+
+            artefactNames.forEach(name => {
+                const cleanName = name.replace('ON_Art_', '');
+                const comment = cleanName.replace(/_/g, ' ');
+                const levels = generateArtefactProperties();
+                
+                const artefactDiv = document.createElement('div');
+                artefactDiv.className = 'bg-gray-700 p-4 rounded-lg';
+                artefactDiv.innerHTML = `<h2 class="text-2xl font-semibold mb-4">ON_Art_${cleanName}</h2>`;
+                
+                const levelsDiv = document.createElement('div');
+                levelsDiv.className = 'grid grid-cols-1 md:grid-cols-4 gap-4';
+                
+                levels.forEach((level, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-gray-800 p-4 rounded-lg shadow-lg';
+                    card.innerHTML = `
+                        <h3 class="text-lg font-semibold mb-2">Уровень ${index + 1}</h3>
+                        <ul class="text-sm">
+                            ${Object.entries(level).map(([key, value]) => `
+                                <li>${key}: <span class="${value >= 0 && !['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(key) ? 'text-green-400' : 'text-red-400'}">${value}</span></li>
+                            `).join('')}
+                        </ul>
+                    `;
+                    levelsDiv.appendChild(card);
+
+                    // Generate .c config
+                    generatedConfig.push(`    class Static_ON_Art_${cleanName}_L${index + 1}`);
+                    generatedConfig.push('    {');
+                    Object.entries(level).forEach(([key, value]) => {
+                        generatedConfig.push(`        ${key} = ${value};`);
+                    });
+                    generatedConfig.push('    };');
+
+                    // Generate JSON entry
+                    const jsonArtefact = mapPropertiesToJson(level, `${cleanName}_L${index + 1}`, `${comment} L${index + 1}`);
+                    jsonArtefact.Classname = `ON_Art_${cleanName}_L${index + 1}`;
+                    jsonOutput.Artefacts.push(jsonArtefact);
+                });
+                
+                artefactDiv.appendChild(levelsDiv);
+                detailsDiv.appendChild(artefactDiv);
+            });
+
+            generatedConfig.push('}');
+            const configText = generatedConfig.join('\n');
+
+            // Display .c config
+            const configOutput = document.getElementById('config-output');
+            const configTextArea = document.getElementById('config-text');
+            configTextArea.value = configText;
+            configOutput.classList.remove('hidden');
+
+            // Warn if combinations were reused
+            if (usedCombinations.length >= 1820) {
+                alert('Внимание: Уникальные комбинации свойств исчерпаны. Некоторые артефакты могут иметь повторяющиеся наборы свойств.');
+            }
+
+            // Enable buttons
+            const copyBtn = document.getElementById('copy-btn');
+            const downloadBtn = document.getElementById('download-btn');
+            copyBtn.classList.remove('hidden');
+            downloadBtn.classList.remove('hidden');
+
+            // Copy .c config
+            copyBtn.onclick = () => {
+                try {
+                    navigator.clipboard.writeText(configText).then(() => {
+                        alert('Конфиг .c скопирован в буфер обмена!');
+                    }).catch(err => {
+                        alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
+                        console.error('Clipboard error:', err);
+                    });
+                } catch (err) {
+                    alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
+                    console.error('Clipboard error:', err);
+                }
+            };
+
+            // Download JSON
+            downloadBtn.onclick = () => {
+                const blob = new Blob([JSON.stringify(jsonOutput, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ArtEffects.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            return configText;
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const names = e.target.result.split('\n').map(name => name.trim()).filter(name => name);
+                    if (names.length > 0) {
+                        document.getElementById('artefact-list').value = names.join('\n');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function handleGenerate() {
+            const textInput = document.getElementById('artefact-list').value;
+            const names = textInput.split('\n').map(name => name.trim()).filter(name => name);
+            if (names.length === 0) {
+                alert('Пожалуйста, загрузите файл или введите имена артефактов.');
+                return;
+            }
+
+            displayArtefacts(names);
+        }
+
+        document.getElementById('artefact-file').addEventListener('change', handleFileUpload);
+        document.getElementById('generate-btn').addEventListener('click', handleGenerate);
+    </script>
+</body>
+</html>
