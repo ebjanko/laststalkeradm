@@ -50,7 +50,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-gray-900 text-white font-sans">
-        <header class="bg-blue-600 text-white shadow-md">
+    <header class="bg-blue-600 text-white shadow-md">
         <nav class="max-w-5xl mx-auto p-4">
             <h1 class="text-2xl font-bold">Last Stalker для админов</h1>
             <ul class="mt-2 flex space-x-4">
@@ -91,16 +91,54 @@
     </div>
 
     <script>
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+            return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                        headerRowIndex = 0;
+                    }
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+
         const properties = [
             'healthPerTick', 'staminaPerTick', 'radiationPerTick', 'bloodPerTick', 'foodPerTick', 'waterPerTick',
             'temperaturePerTick', 'shockPerTick', 'cutsPerTick', 'zombieDamageAbsorption', 'animalDamageAbsorption',
             'legFracture', 'gravityAnomalyProtection', 'thermalAnomalyProtection', 'electricAnomalyProtection',
             'chemicalAnomalyProtection'
         ];
+        const anomalyProtectionProps = [
+            'gravityAnomalyProtection', 'thermalAnomalyProtection', 'electricAnomalyProtection', 'chemicalAnomalyProtection'
+        ];
+        const damageAbsorptionProps = ['zombieDamageAbsorption', 'animalDamageAbsorption'];
         let usedCombinations = [];
 
         function isPositiveEffect(key, value) {
-            const negativeEffectProps = ['radiationPerTick', 'shockPerTick', 'cutsPerTick', 'legFracture'];
+            if (key === 'shockPerTick') {
+                return value > 0; // Положительное значение — позитивный эффект (зелёный)
+            }
+            const negativeEffectProps = ['radiationPerTick', 'cutsPerTick', 'legFracture'];
             if (negativeEffectProps.includes(key)) {
                 return value < 0; // Защита или лечение — позитивный эффект
             }
@@ -119,16 +157,22 @@
             return arr;
         }
 
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
         function getUniquePropertyCombination() {
-            const maxCombinations = 1820; // C(16, 4)
+            const maxCombinations = 715; // C(12, 3) + C(4, 1) для 3 свойств + 1 AnomalyProtection
             if (usedCombinations.length >= maxCombinations) {
                 console.warn('Все уникальные комбинации свойств исчерпаны. Используется случайная комбинация.');
-                return shuffleArray([...properties]).slice(0, 4);
+                return [...shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p))).slice(0, 3), getRandomItem(anomalyProtectionProps)];
             }
 
             let selectedProps;
             do {
-                selectedProps = shuffleArray([...properties]).slice(0, 4).sort();
+                const nonAnomalyProps = shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p))).slice(0, 3);
+                const anomalyProp = getRandomItem(anomalyProtectionProps);
+                selectedProps = [...nonAnomalyProps, anomalyProp].sort();
             } while (usedCombinations.includes(selectedProps.join(',')));
 
             usedCombinations.push(selectedProps.join(','));
@@ -138,51 +182,149 @@
         function generateArtefactProperties() {
             const selectedProps = getUniquePropertyCombination();
             const levels = [{}, {}, {}, {}];
+            const reversibleProps = selectedProps.filter(p => !anomalyProtectionProps.includes(p) && !damageAbsorptionProps.includes(p));
+
+            // Случайно выбираем свойство, которое останется негативным на T4
+            const negativePropT4 = reversibleProps.length > 0 ? getRandomItem(reversibleProps) : null;
+            // Определяем порядок улучшения свойств (кроме negativePropT4)
+            const propsToImprove = shuffleArray(selectedProps.filter(p => p !== negativePropT4));
 
             selectedProps.forEach(prop => {
                 let baseValue;
-                if (prop.includes('AnomalyProtection')) {
-                    baseValue = 0.05;
-                    levels[0][prop] = baseValue;
-                    levels[1][prop] = baseValue;
-                    levels[2][prop] = 0.1;
-                    levels[3][prop] = 0.15;
+                if (damageAbsorptionProps.includes(prop)) {
+                    baseValue = 1; // T1: минимальное
+                    levels[0][prop] = baseValue; // T1
+                    levels[1][prop] = propsToImprove[0] === prop ? baseValue + getRandomInt(1, 3) : baseValue; // T2
+                    levels[2][prop] = propsToImprove[1] === prop ? baseValue + getRandomInt(1, 3) : levels[1][prop]; // T3
+                    levels[3][prop] = propsToImprove[2] === prop ? baseValue + getRandomInt(1, 3) : levels[2][prop]; // T4
+                } else if (anomalyProtectionProps.includes(prop)) {
+                    baseValue = getRandomInt(5, 10); // T1: 5–10
+                    levels[0][prop] = baseValue; // T1
+                    levels[1][prop] = propsToImprove[0] === prop ? baseValue + getRandomInt(1, 3) : baseValue; // T2
+                    levels[2][prop] = propsToImprove[1] === prop ? baseValue + getRandomInt(1, 3) : levels[1][prop]; // T3
+                    levels[3][prop] = propsToImprove[2] === prop ? baseValue + getRandomInt(1, 3) : levels[2][prop]; // T4
+                } else if (prop === 'shockPerTick') {
+                    baseValue = -getRandomInt(5, 10); // T1: -5..-10
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'cutsPerTick') {
+                    baseValue = 1; // T1: 1
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'radiationPerTick') {
+                    baseValue = getRandomInt(10, 50); // T1: 10–50
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
                 } else if (prop === 'legFracture') {
-                    baseValue = 1;
-                    levels[0][prop] = baseValue;
-                    levels[1][prop] = baseValue;
-                    levels[2][prop] = baseValue;
-                    levels[3][prop] = Math.random() < 0.5 ? 1 : -1;
-                } else if (prop === 'zombieDamageAbsorption' || prop === 'animalDamageAbsorption') {
-                    levels[0][prop] = 0; // T1: нет защиты
-                    levels[1][prop] = 1; // T2: поглощает 1 удар
-                    levels[2][prop] = 2; // T3: поглощает 2 удара
-                    levels[3][prop] = 3; // T4: поглощает 3 удара
-                } else if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(prop)) {
-                    baseValue = Math.floor(Math.random() * 3) + 2; // 2, 3, 4
-                    levels[0][prop] = baseValue;
-                    levels[1][prop] = baseValue;
-                    levels[2][prop] = -baseValue;
-                    levels[3][prop] = -baseValue;
-                } else {
-                    baseValue = -(Math.floor(Math.random() * 4) + 2); // -2, -3, -4, -5
-                    levels[0][prop] = baseValue;
-                    levels[1][prop] = -baseValue;
-                    levels[2][prop] = -baseValue;
-                    levels[3][prop] = -baseValue;
+                    baseValue = 1; // T1: 1
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'healthPerTick') {
+                    baseValue = -getRandomInt(1, 5); // T1: -1..-5
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'staminaPerTick') {
+                    baseValue = -getRandomInt(5, 10); // T1: -5..-10
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'bloodPerTick') {
+                    baseValue = -getRandomInt(50, 200); // T1: -50..-200
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'foodPerTick') {
+                    baseValue = -getRandomInt(1, 5); // T1: -1..-5
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'waterPerTick') {
+                    baseValue = -getRandomInt(1, 5); // T1: -1..-5
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'temperaturePerTick') {
+                    baseValue = -getRandomInt(5, 10); // T1: -5..-10
+                    levels[0][prop] = baseValue; // T1
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue; // T2
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop]; // T3
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop]; // T4
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
                 }
             });
-
-            // Ensure T4 has one negative (non-anomaly protection, excluding zombie/animal absorption)
-            const nonAnomalyProps = selectedProps.filter(p => !p.includes('AnomalyProtection') && p !== 'legFracture' && p !== 'zombieDamageAbsorption' && p !== 'animalDamageAbsorption');
-            if (nonAnomalyProps.length > 0) {
-                const propToNegate = getRandomItem(nonAnomalyProps);
-                if (['radiationPerTick', 'shockPerTick', 'cutsPerTick'].includes(propToNegate)) {
-                    levels[3][propToNegate] = Math.abs(levels[0][propToNegate]);
-                } else {
-                    levels[3][propToNegate] = levels[0][propToNegate];
-                }
-            }
 
             return levels;
         }
@@ -298,7 +440,6 @@
                     `;
                     levelsDiv.appendChild(card);
 
-                    // Generate .c config
                     generatedConfig.push(`    class Static_ON_Art_${cleanName}_T${index + 1}`);
                     generatedConfig.push('    {');
                     Object.entries(level).forEach(([key, value]) => {
@@ -306,7 +447,6 @@
                     });
                     generatedConfig.push('    };');
 
-                    // Generate JSON entry
                     const jsonArtefact = mapPropertiesToJson(level, `${cleanName}_T${index + 1}`, `${comment} T${index + 1}`);
                     jsonArtefact.Classname = `ON_Art_${cleanName}_T${index + 1}`;
                     jsonOutput.Artefacts.push(jsonArtefact);
@@ -319,24 +459,20 @@
             generatedConfig.push('}');
             const configText = generatedConfig.join('\n');
 
-            // Display .c config
             const configOutput = document.getElementById('config-output');
             const configTextArea = document.getElementById('config-text');
             configTextArea.value = configText;
             configOutput.classList.remove('hidden');
 
-            // Warn if combinations were reused
-            if (usedCombinations.length >= 1820) {
+            if (usedCombinations.length >= 715) {
                 alert('Внимание: Уникальные комбинации свойств исчерпаны. Некоторые артефакты могут иметь повторяющиеся наборы свойств.');
             }
 
-            // Enable buttons
             const copyBtn = document.getElementById('copy-btn');
             const downloadBtn = document.getElementById('download-btn');
             copyBtn.classList.remove('hidden');
             downloadBtn.classList.remove('hidden');
 
-            // Copy .c config
             copyBtn.onclick = () => {
                 try {
                     navigator.clipboard.writeText(configText).then(() => {
@@ -351,7 +487,6 @@
                 }
             };
 
-            // Download JSON
             downloadBtn.onclick = () => {
                 const blob = new Blob([JSON.stringify(jsonOutput, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
