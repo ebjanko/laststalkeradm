@@ -64,6 +64,7 @@
             <button id="copy-btn" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg hidden">Скопировать конфиг .c</button>
             <button id="download-json-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg hidden">Скачать ArtEffects.json</button>
             <button id="download-cpp-btn" class="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg hidden">Скачать config.cpp</button>
+            <button id="download-mh-btn" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 rounded-lg hidden">Скачать MH_ArtConfig.json</button>
         </div>
         
         <div id="config-output" class="mb-6 hidden">
@@ -75,7 +76,6 @@
     </div>
 
     <script>
-        // Модельный словарь из config.cpp
         const modelPaths = {
             "Alpha": "\\ON_Artefacts_Pack\\ON_Art_Alpha_Art\\Alpha.p3d",
             "Arfa": "\\ON_Artefacts_Pack\\ON_Art_Arfa\\Arfa.p3d",
@@ -173,7 +173,6 @@
         const damageAbsorptionProps = ['zombieDamageAbsorption', 'animalDamageAbsorption'];
         let usedCombinations = [];
 
-        // Перевод свойств на русский для descriptionShort
         const propertyTranslations = {
             'healthPerTick': 'ХП',
             'staminaPerTick': 'Выносливость',
@@ -186,11 +185,11 @@
             'cutsPerTick': 'Кровотечение',
             'zombieDamageAbsorption': 'Защита от зомби',
             'animalDamageAbsorption': 'Защита от животных',
-            'legFracture': 'Перелом ноги',
-            'gravityAnomalyProtection': 'Защита от гравитационной аномалии',
-            'thermalAnomalyProtection': 'Защита от термической аномалии',
-            'electricAnomalyProtection': 'Защита от электроаномалии',
-            'chemicalAnomalyProtection': 'Защита от химической аномалии'
+            'legFracture': 'Перелом',
+            'gravityAnomalyProtection': 'Защита от гравитации',
+            'thermalAnomalyProtection': 'Защита от термических аномалий',
+            'electricAnomalyProtection': 'Защита от электроаномалий',
+            'chemicalAnomalyProtection': 'Защита от химических аномалий'
         };
 
         function isPositiveEffect(key, value) {
@@ -213,7 +212,6 @@
                 const j = Math.floor(Math.random() * (i + 1));
                 [arr[i], arr[j]] = [arr[j], arr[i]];
             }
-            return arr;
         }
 
         function getRandomInt(min, max) {
@@ -223,8 +221,8 @@
         function getUniquePropertyCombination() {
             const maxCombinations = 715;
             if (usedCombinations.length >= maxCombinations) {
-                console.warn('Все уникальные комбинации свойств исчерпаны. Используется случайная комбинация.');
-                return [...shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p))).slice(0, 3), getRandomItem(anomalyProtectionProps)];
+                console.warn('All unique property combinations exhausted.');
+                return [...shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p)).slice(0, 3), getRandomItem(anomalyProtectionProps)];
             }
 
             let selectedProps;
@@ -234,7 +232,7 @@
                 selectedProps = [...nonAnomalyProps, anomalyProp].sort();
             } while (usedCombinations.includes(selectedProps.join(',')));
 
-            usedCombinations.push(selectedProps.join(','));
+            usedCombinations.push(selectedProps.join(',')));
             return selectedProps;
         }
 
@@ -281,7 +279,7 @@
                     levels[2][prop] = propsToImprove[1] === prop ? baseValue + getRandomInt(1, 3) : levels[1][prop];
                     levels[3][prop] = propsToImprove[2] === prop ? baseValue + getRandomInt(1, 3) : levels[2][prop];
                 } else if (prop === 'shockPerTick') {
-                    baseValue = -getRandomInt(5, 10);
+                    baseValue = -getRandomInt(5,10);
                     levels[0][prop] = baseValue;
                     if (prop !== negativePropT4) {
                         levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
@@ -353,7 +351,7 @@
                         levels[3][prop] = baseValue;
                     }
                 } else if (prop === 'bloodPerTick') {
-                    baseValue = -getRandomInt(50, 200);
+                    baseValue = -getRandomInt(50, 200, 200);
                     levels[0][prop] = baseValue;
                     if (prop !== negativePropT4) {
                         levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
@@ -404,6 +402,116 @@
             });
 
             return levels;
+        }
+
+        function mapPropertiesToJson(level, cleanName, comment) {
+            const artefactTemplate = {
+                comment: comment || cleanName,
+                Classname: `ON_Art_${cleanName}`,
+                RemoveArtQuantity: 0.0,
+                RemoveArtHealthTick: 0.0,
+                Health: 0.0,
+                Blood: 0.0,
+                Shock: 0.0,
+                Stamina: 0.0,
+                Weight: 0.0,
+                Protection: {
+                    ProjectResistCount: 0,
+                    AnimalResistCount: 0,
+                    InfectedResistCount: 0,
+                    ExplosiveResistCount: 0
+                },
+                Blowout: {
+                    ImmunityBlowout: 0
+                },
+                AnomProtect: {
+                    ProtectElectraAnomaly: 0.0,
+                    ProtectGraviAnomaly: 0.0,
+                    ProtectFireAnomaly: 0.0,
+                    ProtectHimicAnomaly: 0.0
+                },
+                RadiationParams: {
+                    Radiation: 0, // Устанавливаем 0, исключаем radiationPerTick
+                    RadiationResist: 0,
+                    ProtectRadiationPercent: 0.0
+                },
+                RangRepParams: {
+                    RangPoint: 0,
+                    MultiplierRangPoint: 0.0,
+                    ReputationPoint: 0,
+                    MultiplierReputationPoint: 0.0
+                },
+                PsiSystemParams: {
+                    PsiResistPercent: 0
+                },
+                Eat: 0.0,
+                Water: 0.0,
+                HeatComfort: 0.0,
+                Bleeding: 0,
+                BrokenLegs: 0,
+                ArtefactBelts: ["classname", "classname"],
+                ArtefactCases: ["RAD_PKA_Glass"]
+            };
+
+            Object.entries(level).forEach(([prop, value]) => {
+                switch (prop) {
+                    case 'healthPerTick': artefactTemplate.Health = value; break;
+                    case 'bloodPerTick': artefactTemplate.Blood = value; break;
+                    case 'staminaPerTick': artefactTemplate.Stamina = value; break;
+                    case 'foodPerTick': artefactTemplate.Eat = value; break;
+                    case 'waterPerTick': artefactTemplate.Water = value; break;
+                    case 'temperaturePerTick': artefactTemplate.HeatComfort = value; break;
+                    case 'shockPerTick': artefactTemplate.Shock = value; break;
+                    case 'cutsPerTick': artefactTemplate.Bleeding = value; break;
+                    case 'zombieDamageAbsorption': artefactTemplate.Protection.InfectedResistCount = value; break;
+                    case 'animalDamageAbsorption': artefactTemplate.Protection.AnimalResistCount = value; break;
+                    case 'legFracture': artefactTemplate.BrokenLegs = value; break;
+                    case 'gravityAnomalyProtection': artefactTemplate.AnomProtect.ProtectGraviAnomaly = value; break;
+                    case 'thermalAnomalyProtection': artefactTemplate.AnomProtect.ProtectFireAnomaly = value; break;
+                    case 'electricAnomalyProtection': artefactTemplate.AnomProtect.ProtectElectraAnomaly = value; break;
+                    case 'chemicalAnomalyProtection': artefactTemplate.AnomProtect.ProtectHimicAnomaly = value; break;
+                }
+            });
+
+            return artefactTemplate;
+        }
+
+        function generateMHArtConfig(artefactNames, levelsMap) {
+            const mhConfig = {
+                active: [1,
+                effecttimer: 10,
+                artefacts: [
+            };
+
+            artefactNames.forEach(name => {
+                const cleanName = name.replace('ON_Art_', '');
+                const levels = levelsMap[cleanName];
+
+                levels.forEach((level, index) => {
+                    const tier = index + 1;
+                    const radValue = level.radiationPerTick || 0;
+                    mhConfig.artefacts.push({
+                        containers: [],
+                        classname: `ON_Art_${cleanName}_T${tier}`,
+                        hpeffect: 0.0,
+                        eat: 0.0,
+                        water: 0.0,
+                        bloodeffect: 0.0,
+                        shockeffect: 0.0,
+                        temperature: 0,
+                        bleedingchanse: 0,
+                        bleedingfixchanse: 0,
+                        legbrakechanse: 0,
+                        coughchanse: 0.0,
+                        legfixchanse: 0,
+                        rad: radValue,
+                        stamina: 0,
+                        healthModifier: 0
+                    });
+                });
+            });
+
+            return mhConfig;
         }
 
         function generateCppConfig(artefactNames, levelsMap) {
@@ -477,79 +585,6 @@
             return cppConfig.join('\n');
         }
 
-        function mapPropertiesToJson(level, cleanName, comment) {
-            const artefactTemplate = {
-                comment: comment || cleanName,
-                Classname: `ON_Art_${cleanName}`,
-                RemoveArtQuantityTick: 0.0,
-                RemoveArtHealthTick: 0.0,
-                Health: 0.0,
-                Blood: 0.0,
-                Shock: 0.0,
-                Stamina: 0.0,
-                Weight: 0.0,
-                Protection: {
-                    ProjectResistCount: 0,
-                    AnimalResistCount: 0,
-                    InfectedResistCount: 0,
-                    ExplosiveResistCount: 0
-                },
-                Blowout: {
-                    ImmunityBlowout: 0
-                },
-                AnomProtect: {
-                    ProtectElectraAnomaly: 0.0,
-                    ProtectGraviAnomaly: 0.0,
-                    ProtectFireAnomaly: 0.0,
-                    ProtectHimicAnomaly: 0.0
-                },
-                RadiationParams: {
-                    Radiation: 0,
-                    RadiationResist: 0,
-                    ProtectRadiationPercent: 0.0
-                },
-                RangRepParams: {
-                    RangPoint: 0,
-                    MultiplierRangPoint: 0.0,
-                    ReputationPoint: 0,
-                    MultiplierReputationPoint: 0.0
-                },
-                PsiSystemParams: {
-                    PsiResistPercent: 0
-                },
-                Eat: 0.0,
-                Water: 0.0,
-                HeatComfort: 0.0,
-                Bleeding: 0,
-                BrokenLegs: 0,
-                ArtefactBelts: ["classname", "classname"],
-                ArtefactCases: ["RAD_PKA_Glass"]
-            };
-
-            Object.entries(level).forEach(([prop, value]) => {
-                switch (prop) {
-                    case 'healthPerTick': artefactTemplate.Health = value; break;
-                    case 'bloodPerTick': artefactTemplate.Blood = value; break;
-                    case 'staminaPerTick': artefactTemplate.Stamina = value; break;
-                    case 'radiationPerTick': artefactTemplate.RadiationParams.Radiation = value; break;
-                    case 'foodPerTick': artefactTemplate.Eat = value; break;
-                    case 'waterPerTick': artefactTemplate.Water = value; break;
-                    case 'temperaturePerTick': artefactTemplate.HeatComfort = value; break;
-                    case 'shockPerTick': artefactTemplate.Shock = value; break;
-                    case 'cutsPerTick': artefactTemplate.Bleeding = value; break;
-                    case 'zombieDamageAbsorption': artefactTemplate.Protection.InfectedResistCount = value; break;
-                    case 'animalDamageAbsorption': artefactTemplate.Protection.AnimalResistCount = value; break;
-                    case 'legFracture': artefactTemplate.BrokenLegs = value; break;
-                    case 'gravityAnomalyProtection': artefactTemplate.AnomProtect.ProtectGraviAnomaly = value; break;
-                    case 'thermalAnomalyProtection': artefactTemplate.AnomProtect.ProtectFireAnomaly = value; break;
-                    case 'electricAnomalyProtection': artefactTemplate.AnomProtect.ProtectElectraAnomaly = value; break;
-                    case 'chemicalAnomalyProtection': artefactTemplate.AnomProtect.ProtectHimicAnomaly = value; break;
-                }
-            });
-
-            return artefactTemplate;
-        }
-
         function displayArtefacts(artefactNames) {
             usedCombinations = [];
             const detailsDiv = document.getElementById('artefact-details');
@@ -621,9 +656,11 @@
             const copyBtn = document.getElementById('copy-btn');
             const downloadJsonBtn = document.getElementById('download-json-btn');
             const downloadCppBtn = document.getElementById('download-cpp-btn');
+            const downloadMHBtn = document.getElementById('download-mh-btn');
             copyBtn.classList.remove('hidden');
             downloadJsonBtn.classList.remove('hidden');
             downloadCppBtn.classList.remove('hidden');
+            downloadMHBtn.classList.remove('hidden');
 
             copyBtn.onclick = () => {
                 try {
@@ -656,6 +693,17 @@
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = 'config.cpp';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            downloadMHBtn.onclick = () => {
+                const mhText = generateMHArtConfig(artefactNames, levelsMap);
+                const blob = new Blob([JSON.stringify(mhText, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'MH_ArtConfig.json';
                 a.click();
                 URL.revokeObjectURL(url);
             };
