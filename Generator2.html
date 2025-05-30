@@ -65,6 +65,7 @@
             <button id="download-json-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg hidden">Скачать ArtEffects.json</button>
             <button id="download-cpp-btn" class="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg hidden">Скачать config.cpp</button>
             <button id="download-mh-btn" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 rounded-lg hidden">Скачать MH_ArtConfig.json</button>
+            <button id="download-resist-btn" class="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 rounded-lg hidden">Скачать ItemResist.json</button>
         </div>
         
         <div id="config-output" class="mb-6 hidden">
@@ -129,37 +130,6 @@
             "Weird_Bolt": "\\ON_Artefacts_Pack\\ON_Art_Weird_Bolt\\WB.p3d",
             "Weird_Gajka": "\\ON_Artefacts_Pack\\ON_Art_Weird_Gajka\\WG.p3d"
         };
-
-        var gk_isXlsx = false;
-        var gk_xlsxFileLookup = {};
-        var gk_fileData = {};
-        function filledCell(cell) {
-            return cell !== '' && cell != null;
-        }
-        function loadFileData(filename) {
-            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
-                try {
-                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
-                    var firstSheetName = workbook.SheetNames[0];
-                    var worksheet = workbook.Sheets[firstSheetName];
-                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
-                    var filteredData = jsonData.filter(row => row.some(filledCell));
-                    var headerRowIndex = filteredData.findIndex((row, index) =>
-                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
-                    );
-                    if (headerRowIndex === -1 || headerRowIndex > 25) {
-                        headerRowIndex = 0;
-                    }
-                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
-                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
-                    return csv;
-                } catch (e) {
-                    console.error(e);
-                    return "";
-                }
-            }
-            return gk_fileData[filename] || "";
-        }
 
         const properties = [
             'healthPerTick', 'staminaPerTick', 'radiationPerTick', 'bloodPerTick', 'foodPerTick', 'waterPerTick',
@@ -487,10 +457,7 @@
                     case 'zombieDamageAbsorption': artefactTemplate.Protection.InfectedResistCount = value; break;
                     case 'animalDamageAbsorption': artefactTemplate.Protection.AnimalResistCount = value; break;
                     case 'legFracture': artefactTemplate.BrokenLegs = value; break;
-                    case 'gravityAnomalyProtection': artefactTemplate.AnomProtect.ProtectGraviAnomaly = value; break;
-                    case 'thermalAnomalyProtection': artefactTemplate.AnomProtect.ProtectFireAnomaly = value; break;
-                    case 'electricAnomalyProtection': artefactTemplate.AnomProtect.ProtectElectraAnomaly = value; break;
-                    case 'chemicalAnomalyProtection': artefactTemplate.AnomProtect.ProtectHimicAnomaly = value; break;
+                    // Anomaly protections are not mapped here, set to 0.0 in template
                 }
             });
 
@@ -510,7 +477,6 @@
 
                 levels.forEach((level, index) => {
                     const radValue = level.radiationPerTick;
-                    // Включаем только артефакты с radiationPerTick != 0
                     if (radValue !== undefined && radValue !== 0) {
                         const tier = index + 1;
                         mhConfig.artefacts.push({
@@ -536,6 +502,68 @@
             });
 
             return mhConfig;
+        }
+
+        function generateItemResistConfig(artefactNames, levelsMap) {
+            const resistConfig = {
+                ResistAnomalyIconsEnable: 1,
+                m_stackable: 0,
+                m_resistList: {}
+            };
+
+            artefactNames.forEach(name => {
+                const cleanName = name.replace('ON_Art_', '');
+                const levels = levelsMap[cleanName];
+
+                levels.forEach((level, index) => {
+                    const tier = index + 1;
+                    const classname = `ON_Art_${cleanName}_T${tier}`;
+                    const hasAnomalyProtection = anomalyProtectionProps.some(prop => level[prop] !== undefined && level[prop] !== 0);
+
+                    if (hasAnomalyProtection) {
+                        resistConfig.m_resistList[classname] = [
+                            {
+                                m_anomaly: ["Anomaly_Electra_Active", "Anomaly_Electra2_Active"],
+                                m_imageset: "set:AnomalyIcons image:Electro",
+                                m_healthresist: level.electricAnomalyProtection ? level.electricAnomalyProtection / 100 : 0.0,
+                                m_shockresist: level.electricAnomalyProtection ? level.electricAnomalyProtection / 100 : 0.0,
+                                m_bloodresist: level.electricAnomalyProtection ? level.electricAnomalyProtection / 100 : 0.0,
+                                m_isDecreaseQuantity: 0,
+                                m_decreaseQuantity: 0.0
+                            },
+                            {
+                                m_anomaly: ["Anomaly_Fire_Active", "Anomaly_Frost_Active", "Anomaly_Steam_Active"],
+                                m_imageset: "set:AnomalyIcons image:Fire",
+                                m_healthresist: level.thermalAnomalyProtection ? level.thermalAnomalyProtection / 100 : 0.0,
+                                m_shockresist: level.thermalAnomalyProtection ? level.thermalAnomalyProtection / 100 : 0.0,
+                                m_bloodresist: level.thermalAnomalyProtection ? level.thermalAnomalyProtection / 100 : 0.0,
+                                m_isDecreaseQuantity: 0,
+                                m_decreaseQuantity: 0.0
+                            },
+                            {
+                                m_anomaly: ["Anomaly_Gravi_Active", "Anomaly_Chopper_Active", "Anomaly_GlassShards_Active"],
+                                m_imageset: "set:AnomalyIcons image:Gravi",
+                                m_healthresist: level.gravityAnomalyProtection ? level.gravityAnomalyProtection / 100 : 0.0,
+                                m_shockresist: level.gravityAnomalyProtection ? level.gravityAnomalyProtection / 100 : 0.0,
+                                m_bloodresist: level.gravityAnomalyProtection ? level.gravityAnomalyProtection / 100 : 0.0,
+                                m_isDecreaseQuantity: 0,
+                                m_decreaseQuantity: 0.0
+                            },
+                            {
+                                m_anomaly: ["Anomaly_Kisel_Active", "Anomaly_Puh_Active", "Anomaly_Kisel_Yellow_Active", "Anomaly_Kisel_Red_Active", "Anomaly_Kisel_Blue_Active"],
+                                m_imageset: "set:AnomalyIcons image:Chemical",
+                                m_healthresist: level.chemicalAnomalyProtection ? level.chemicalAnomalyProtection / 100 : 0.0,
+                                m_shockresist: level.chemicalAnomalyProtection ? level.chemicalAnomalyProtection / 100 : 0.0,
+                                m_bloodresist: level.chemicalAnomalyProtection ? level.chemicalAnomalyProtection / 100 : 0.0,
+                                m_isDecreaseQuantity: 0,
+                                m_decreaseQuantity: 0.0
+                            }
+                        ];
+                    }
+                });
+            });
+
+            return resistConfig;
         }
 
         function generateCppConfig(artefactNames, levelsMap) {
@@ -681,23 +709,20 @@
             const downloadJsonBtn = document.getElementById('download-json-btn');
             const downloadCppBtn = document.getElementById('download-cpp-btn');
             const downloadMHBtn = document.getElementById('download-mh-btn');
+            const downloadResistBtn = document.getElementById('download-resist-btn');
             copyBtn.classList.remove('hidden');
             downloadJsonBtn.classList.remove('hidden');
             downloadCppBtn.classList.remove('hidden');
             downloadMHBtn.classList.remove('hidden');
+            downloadResistBtn.classList.remove('hidden');
 
             copyBtn.onclick = () => {
-                try {
-                    navigator.clipboard.writeText(configText).then(() => {
-                        alert('Конфиг .c скопирован в буфер обмена!');
-                    }).catch(err => {
-                        alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
+                navigator.clipboard.writeText(configText)
+                    .then(() => alert('Конфиг .c скопирован в буфер обмена!'))
+                    .catch(err => {
+                        alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст вручную.');
                         console.error('Clipboard error:', err);
                     });
-                } catch (err) {
-                    alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
-                    console.error('Clipboard error:', err);
-                }
             };
 
             downloadJsonBtn.onclick = () => {
@@ -728,6 +753,17 @@
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = 'MH_ArtConfig.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            downloadResistBtn.onclick = () => {
+                const resistText = generateItemResistConfig(artefactNames, levelsMap);
+                const blob = new Blob([JSON.stringify(resistText, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ItemResist.json';
                 a.click();
                 URL.revokeObjectURL(url);
             };
