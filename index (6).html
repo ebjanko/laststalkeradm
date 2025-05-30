@@ -1,0 +1,695 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Генератор свойств артефактов</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-white font-sans">
+    <div class="container mx-auto p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center">Генератор свойств артефактов</h1>
+        
+        <div class="mb-6">
+            <label for="artefact-file" class="block text-sm font-medium text-gray-300 mb-2">Загрузить список артефактов (.txt):</label>
+            <input type="file" id="artefact-file" accept=".txt" class="p-2 w-full bg-gray-700 border rounded-lg text-gray-200">
+        </div>
+        
+        <div class="mb-6">
+            <label for="artefact-list" class="block text-sm font-medium text-gray-300 mb-2">Или введите имена артефактов (одно на строку):</label>
+            <textarea id="artefact-list" rows="5" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" placeholder="Zavtrak_Turista\nWeird_Bolt"></textarea>
+        </div>
+        
+        <div class="flex space-x-4 mb-6">
+            <button id="generate-btn" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg">Сгенерировать эффекты</button>
+            <button id="copy-btn" class="px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg hidden">Скопировать конфиг .c</button>
+            <button id="download-json-btn" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg hidden">Скачать ArtEffects.json</button>
+            <button id="download-cpp-btn" class="px-4 py-2 bg-orange-600 hover:bg-orange-700 rounded-lg hidden">Скачать config.cpp</button>
+        </div>
+        
+        <div id="config-output" class="mb-6 hidden">
+            <label for="config-text" class="block text-sm font-medium text-gray-300 mb-2">Сгенерированный конфиг .c (можно скопировать вручную):</label>
+            <textarea id="config-text" rows="10" class="w-full p-2 bg-gray-700 border rounded-lg text-gray-200" readonly></textarea>
+        </div>
+        
+        <div id="artefact-details" class="space-y-6"></div>
+    </div>
+
+    <script>
+        // Модельный словарь из config.cpp
+        const modelPaths = {
+            "Alpha": "\\ON_Artefacts_Pack\\ON_Art_Alpha_Art\\Alpha.p3d",
+            "Arfa": "\\ON_Artefacts_Pack\\ON_Art_Arfa\\Arfa.p3d",
+            "BakedBolts": "\\ON_Artefacts_Pack\\ON_Art_BakedBolts\\BakedBolts.p3d",
+            "Bifshteks": "\\ON_Artefacts_Pack\\ON_Art_Bifshteks\\Bifshteks.p3d",
+            "Bitiy_Kamen": "\\ON_Artefacts_Pack\\ON_Art_Bitiy_Kamen\\BK.p3d",
+            "Blood_Stone": "\\ON_Artefacts_Pack\\ON_Art_Blood_Stone\\BS.p3d",
+            "Cherevo": "\\ON_Artefacts_Pack\\ON_Art_Cherevo\\Cherevo.p3d",
+            "Compass": "\\ON_Artefacts_Pack\\ON_Art_Compass\\Compass.p3d",
+            "Crystal": "\\ON_Artefacts_Pack\\ON_Art_Crystal\\Crystal.p3d",
+            "Devils_Mushroom": "\\ON_Artefacts_Pack\\ON_Art_Devils_Mushroom\\DM.p3d",
+            "Dziga": "\\ON_Artefacts_Pack\\ON_Art_Dziga\\Dziga.p3d",
+            "Electro_Battery": "\\ON_Artefacts_Pack\\ON_Art_Electro_Battery\\EB.p3d",
+            "Fakel": "\\ON_Artefacts_Pack\\ON_Art_Fakel\\Fakel.p3d",
+            "Fireball": "\\ON_Artefacts_Pack\\ON_Art_Fireball\\Fireball.p3d",
+            "Flash": "\\ON_Artefacts_Pack\\ON_Art_Flash\\Flash.p3d",
+            "Galka": "\\ON_Artefacts_Pack\\ON_Art_Galka\\Galka.p3d",
+            "GiperCub": "\\ON_Artefacts_Pack\\ON_Art_GiperCub\\GiperCub.p3d",
+            "Goldfish": "\\ON_Artefacts_Pack\\ON_Art_Goldfish\\Goldfish.p3d",
+            "Gravy": "\\ON_Artefacts_Pack\\ON_Art_Gravy\\Gravy.p3d",
+            "Grz_Yag": "\\ON_Artefacts_Pack\\ON_Art_Grz_Yag\\GY.p3d",
+            "Kapla": "\\ON_Artefacts_Pack\\ON_Art_Kapla\\Kapla.p3d",
+            "Korona": "\\ON_Artefacts_Pack\\ON_Art_Korona\\Korona.p3d",
+            "Lira": "\\ON_Artefacts_Pack\\ON_Art_Lira\\Lira.p3d",
+            "Magma": "\\ON_Artefacts_Pack\\ON_Art_Magma\\Magma.p3d",
+            "MeatChunk": "\\ON_Artefacts_Pack\\ON_Art_MeatChunk\\MC.p3d",
+            "Mertvaya_Guba": "\\ON_Artefacts_Pack\\ON_Art_Mertvaya_Guba\\MG.p3d",
+            "Morskaya_Zvezda": "\\ON_Artefacts_Pack\\ON_Art_Morskaya_Zvezda\\MZ.p3d",
+            "Myas_Zapal": "\\ON_Artefacts_Pack\\ON_Art_Myas_Zapal\\MZL.p3d",
+            "Plazma": "\\ON_Artefacts_Pack\\ON_Art_Plazma\\Plazma.p3d",
+            "Plesen": "\\ON_Artefacts_Pack\\ON_Art_Plesen\\Plesen.p3d",
+            "Rog": "\\ON_Artefacts_Pack\\ON_Art_Rog\\Rog.p3d",
+            "Sapfir": "\\ON_Artefacts_Pack\\ON_Art_Sapfir\\Sapfir.p3d",
+            "Sh_korol": "\\ON_Artefacts_Pack\\ON_Art_Sh_korol\\SK.p3d",
+            "Shell": "\\ON_Artefacts_Pack\\ON_Art_Shell\\Shell.p3d",
+            "Shokoladka": "\\ON_Artefacts_Pack\\ON_Art_Shokoladka\\SD.p3d",
+            "Slime": "\\ON_Artefacts_Pack\\ON_Art_Slime\\Slime.p3d",
+            "Slug": "\\ON_Artefacts_Pack\\ON_Art_Slug\\Slug.p3d",
+            "Slyuda": "\\ON_Artefacts_Pack\\ON_Art_Slyuda\\Slyuda.p3d",
+            "Thron": "\\ON_Artefacts_Pack\\ON_Art_Thron\\Thron.p3d",
+            "Urok_Truda": "\\ON_Artefacts_Pack\\ON_Art_Urok_Truda\\UT.p3d",
+            "Vyvert": "\\ON_Artefacts_Pack\\ON_Art_Vyvert\\Vyvert.p3d",
+            "Zavtrak_Turista": "\\ON_Artefacts_Pack\\ON_Art_Zavtrak_Turista\\ZT.p3d",
+            "Zhidkiy_Kamen": "\\ON_Artefacts_Pack\\ON_Art_Zhidkiy_Kamen\\ZK.p3d",
+            "Flytrap": "\\ON_Artefacts_Pack\\ON_Art_Flytrap\\Flytrap.p3d",
+            "Greben": "\\ON_Artefacts_Pack\\ON_Art_Greben\\Greben.p3d",
+            "Heart_Chornobyl": "\\ON_Artefacts_Pack\\ON_Art_Heart_Chornobyl\\HC.p3d",
+            "Jumper": "\\ON_Artefacts_Pack\\ON_Art_Jumper\\Jumper.p3d",
+            "Lamp": "\\ON_Artefacts_Pack\\ON_Art_Lamp\\Lamp.p3d",
+            "Rubiks_Cube": "\\ON_Artefacts_Pack\\ON_Art_Rubiks_Cube\\RC.p3d",
+            "Weird_Bolt": "\\ON_Artefacts_Pack\\ON_Art_Weird_Bolt\\WB.p3d",
+            "Weird_Gajka": "\\ON_Artefacts_Pack\\ON_Art_Weird_Gajka\\WG.p3d"
+        };
+
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+            return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+            if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+                try {
+                    var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                    var firstSheetName = workbook.SheetNames[0];
+                    var worksheet = workbook.Sheets[firstSheetName];
+                    var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                    var filteredData = jsonData.filter(row => row.some(filledCell));
+                    var headerRowIndex = filteredData.findIndex((row, index) =>
+                        row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                    );
+                    if (headerRowIndex === -1 || headerRowIndex > 25) {
+                        headerRowIndex = 0;
+                    }
+                    var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex));
+                    csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                    return csv;
+                } catch (e) {
+                    console.error(e);
+                    return "";
+                }
+            }
+            return gk_fileData[filename] || "";
+        }
+
+        const properties = [
+            'healthPerTick', 'staminaPerTick', 'radiationPerTick', 'bloodPerTick', 'foodPerTick', 'waterPerTick',
+            'temperaturePerTick', 'shockPerTick', 'cutsPerTick', 'zombieDamageAbsorption', 'animalDamageAbsorption',
+            'legFracture', 'gravityAnomalyProtection', 'thermalAnomalyProtection', 'electricAnomalyProtection',
+            'chemicalAnomalyProtection'
+        ];
+        const anomalyProtectionProps = [
+            'gravityAnomalyProtection', 'thermalAnomalyProtection', 'electricAnomalyProtection', 'chemicalAnomalyProtection'
+        ];
+        const damageAbsorptionProps = ['zombieDamageAbsorption', 'animalDamageAbsorption'];
+        let usedCombinations = [];
+
+        // Перевод свойств на русский для descriptionShort
+        const propertyTranslations = {
+            'healthPerTick': 'ХП',
+            'staminaPerTick': 'Выносливость',
+            'radiationPerTick': 'Радиация',
+            'bloodPerTick': 'Кровь',
+            'foodPerTick': 'Голод',
+            'waterPerTick': 'Жажда',
+            'temperaturePerTick': 'Температура',
+            'shockPerTick': 'Шок',
+            'cutsPerTick': 'Кровотечение',
+            'zombieDamageAbsorption': 'Защита от зомби',
+            'animalDamageAbsorption': 'Защита от животных',
+            'legFracture': 'Перелом ноги',
+            'gravityAnomalyProtection': 'Защита от гравитационной аномалии',
+            'thermalAnomalyProtection': 'Защита от термической аномалии',
+            'electricAnomalyProtection': 'Защита от электроаномалии',
+            'chemicalAnomalyProtection': 'Защита от химической аномалии'
+        };
+
+        function isPositiveEffect(key, value) {
+            if (key === 'shockPerTick') {
+                return value > 0;
+            }
+            const negativeEffectProps = ['radiationPerTick', 'cutsPerTick', 'legFracture'];
+            if (negativeEffectProps.includes(key)) {
+                return value < 0;
+            }
+            return value > 0;
+        }
+
+        function getRandomItem(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        function shuffleArray(arr) {
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [arr[i], arr[j]] = [arr[j], arr[i]];
+            }
+            return arr;
+        }
+
+        function getRandomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function getUniquePropertyCombination() {
+            const maxCombinations = 715;
+            if (usedCombinations.length >= maxCombinations) {
+                console.warn('Все уникальные комбинации свойств исчерпаны. Используется случайная комбинация.');
+                return [...shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p))).slice(0, 3), getRandomItem(anomalyProtectionProps)];
+            }
+
+            let selectedProps;
+            do {
+                const nonAnomalyProps = shuffleArray(properties.filter(p => !anomalyProtectionProps.includes(p))).slice(0, 3);
+                const anomalyProp = getRandomItem(anomalyProtectionProps);
+                selectedProps = [...nonAnomalyProps, anomalyProp].sort();
+            } while (usedCombinations.includes(selectedProps.join(',')));
+
+            usedCombinations.push(selectedProps.join(','));
+            return selectedProps;
+        }
+
+        function generateDescriptionShort(level) {
+            const descriptions = [];
+            Object.entries(level).forEach(([key, value]) => {
+                let desc = '';
+                if (damageAbsorptionProps.includes(key)) {
+                    desc = `[${propertyTranslations[key]}: Спасает от ${value} ударов]`;
+                } else if (anomalyProtectionProps.includes(key)) {
+                    desc = `[${propertyTranslations[key]} ${value}%]`;
+                } else if (key === 'legFracture') {
+                    desc = value > 0 ? `[${propertyTranslations[key]}]` : `[Защита от ${propertyTranslations[key]}]`;
+                } else if (key === 'cutsPerTick') {
+                    desc = value > 0 ? `[${propertyTranslations[key]} +${value}]` : `[${propertyTranslations[key]} ${value}]`;
+                } else {
+                    desc = `[${propertyTranslations[key]} ${value > 0 ? '+' : ''}${value}%]`;
+                }
+                descriptions.push(desc);
+            });
+            return descriptions.join(',');
+        }
+
+        function generateArtefactProperties() {
+            const selectedProps = getUniquePropertyCombination();
+            const levels = [{}, {}, {}, {}];
+            const reversibleProps = selectedProps.filter(p => !anomalyProtectionProps.includes(p) && !damageAbsorptionProps.includes(p));
+
+            const negativePropT4 = reversibleProps.length > 0 ? getRandomItem(reversibleProps) : null;
+            const propsToImprove = shuffleArray(selectedProps.filter(p => p !== negativePropT4));
+
+            selectedProps.forEach(prop => {
+                let baseValue;
+                if (damageAbsorptionProps.includes(prop)) {
+                    baseValue = 1;
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = propsToImprove[0] === prop ? baseValue + getRandomInt(1, 3) : baseValue;
+                    levels[2][prop] = propsToImprove[1] === prop ? baseValue + getRandomInt(1, 3) : levels[1][prop];
+                    levels[3][prop] = propsToImprove[2] === prop ? baseValue + getRandomInt(1, 3) : levels[2][prop];
+                } else if (anomalyProtectionProps.includes(prop)) {
+                    baseValue = getRandomInt(5, 10);
+                    levels[0][prop] = baseValue;
+                    levels[1][prop] = propsToImprove[0] === prop ? baseValue + getRandomInt(1, 3) : baseValue;
+                    levels[2][prop] = propsToImprove[1] === prop ? baseValue + getRandomInt(1, 3) : levels[1][prop];
+                    levels[3][prop] = propsToImprove[2] === prop ? baseValue + getRandomInt(1, 3) : levels[2][prop];
+                } else if (prop === 'shockPerTick') {
+                    baseValue = -getRandomInt(5, 10);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'cutsPerTick') {
+                    baseValue = 1;
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'radiationPerTick') {
+                    baseValue = getRandomInt(10, 50);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'legFracture') {
+                    baseValue = 1;
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'healthPerTick') {
+                    baseValue = -getRandomInt(1, 5);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'staminaPerTick') {
+                    baseValue = -getRandomInt(5, 10);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'bloodPerTick') {
+                    baseValue = -getRandomInt(50, 200);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'foodPerTick') {
+                    baseValue = -getRandomInt(1, 5);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'waterPerTick') {
+                    baseValue = -getRandomInt(1, 5);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                } else if (prop === 'temperaturePerTick') {
+                    baseValue = -getRandomInt(5, 10);
+                    levels[0][prop] = baseValue;
+                    if (prop !== negativePropT4) {
+                        levels[1][prop] = propsToImprove[0] === prop ? -baseValue : baseValue;
+                        levels[2][prop] = propsToImprove[1] === prop ? -baseValue : levels[1][prop];
+                        levels[3][prop] = propsToImprove[2] === prop ? -baseValue : levels[2][prop];
+                    } else {
+                        levels[1][prop] = baseValue;
+                        levels[2][prop] = baseValue;
+                        levels[3][prop] = baseValue;
+                    }
+                }
+            });
+
+            return levels;
+        }
+
+        function generateCppConfig(artefactNames, levelsMap) {
+            const cppConfig = [
+                '#define _ARMA_',
+                '',
+                'class CfgPatches',
+                '{',
+                '    class ON_Artefacts_Pack',
+                '    {',
+                '        units[] = {};',
+                '        weapons[] = {};',
+                '        requiredVersion = 0.1;',
+                '        requiredAddons[] = {"DZ_Data"};',
+                '    };',
+                '};',
+                'class CfgVehicles',
+                '{',
+                '    class Inventory_Base;',
+                '    class ON_Art_Base: Inventory_Base',
+                '    {',
+                '        scope = 0;',
+                '        itemSize[] = {2,2};',
+                '        weight = 400;',
+                '        inventorySlot[] = {"Artifacts1","Artifacts2","Artifacts3","Artifacts4","Artifacts5","Artifacts6","Artifacts7","Artifacts8","Artifacts9","Artifacts10"};',
+                '        class DamageSystem',
+                '        {',
+                '            class GlobalHealth',
+                '            {',
+                '                class Health',
+                '                {',
+                '                    hitpoints = 300;',
+                '                    healthLevels[] = {{1,{}},{0.7,{}},{0.5,{}},{0.3,{}},{0,{}}};',
+                '                };',
+                '            };',
+                '        };',
+                '    };'
+            ];
+
+            artefactNames.forEach(name => {
+                const cleanName = name.replace('ON_Art_', '');
+                const modelPath = modelPaths[cleanName] || '';
+                const levels = levelsMap[cleanName];
+
+                levels.forEach((level, index) => {
+                    const tier = index + 1;
+                    const descriptionShort = generateDescriptionShort(level);
+                    cppConfig.push(
+                        `    class ON_Art_${cleanName}_T${tier}: ON_Art_Base`,
+                        '    {',
+                        '        scope = 2;',
+                        `        descriptionShort = "${descriptionShort}";`,
+                        `        model = "${modelPath}";`,
+                        '        class DamageSystem',
+                        '        {',
+                        '            class GlobalHealth',
+                        '            {',
+                        '                class Health',
+                        '                {',
+                        '                    hitpoints = 300;',
+                        '                    healthLevels[] = {{1,{}},{0.7,{}},{0.5,{}},{0.3,{}},{0,{}}};',
+                        '                };',
+                        '            };',
+                        '        };',
+                        '    };'
+                    );
+                });
+            });
+
+            cppConfig.push('};');
+            return cppConfig.join('\n');
+        }
+
+        function mapPropertiesToJson(level, cleanName, comment) {
+            const artefactTemplate = {
+                comment: comment || cleanName,
+                Classname: `ON_Art_${cleanName}`,
+                RemoveArtQuantityTick: 0.0,
+                RemoveArtHealthTick: 0.0,
+                Health: 0.0,
+                Blood: 0.0,
+                Shock: 0.0,
+                Stamina: 0.0,
+                Weight: 0.0,
+                Protection: {
+                    ProjectResistCount: 0,
+                    AnimalResistCount: 0,
+                    InfectedResistCount: 0,
+                    ExplosiveResistCount: 0
+                },
+                Blowout: {
+                    ImmunityBlowout: 0
+                },
+                AnomProtect: {
+                    ProtectElectraAnomaly: 0.0,
+                    ProtectGraviAnomaly: 0.0,
+                    ProtectFireAnomaly: 0.0,
+                    ProtectHimicAnomaly: 0.0
+                },
+                RadiationParams: {
+                    Radiation: 0,
+                    RadiationResist: 0,
+                    ProtectRadiationPercent: 0.0
+                },
+                RangRepParams: {
+                    RangPoint: 0,
+                    MultiplierRangPoint: 0.0,
+                    ReputationPoint: 0,
+                    MultiplierReputationPoint: 0.0
+                },
+                PsiSystemParams: {
+                    PsiResistPercent: 0
+                },
+                Eat: 0.0,
+                Water: 0.0,
+                HeatComfort: 0.0,
+                Bleeding: 0,
+                BrokenLegs: 0,
+                ArtefactBelts: ["classname", "classname"],
+                ArtefactCases: ["RAD_PKA_Glass"]
+            };
+
+            Object.entries(level).forEach(([prop, value]) => {
+                switch (prop) {
+                    case 'healthPerTick': artefactTemplate.Health = value; break;
+                    case 'bloodPerTick': artefactTemplate.Blood = value; break;
+                    case 'staminaPerTick': artefactTemplate.Stamina = value; break;
+                    case 'radiationPerTick': artefactTemplate.RadiationParams.Radiation = value; break;
+                    case 'foodPerTick': artefactTemplate.Eat = value; break;
+                    case 'waterPerTick': artefactTemplate.Water = value; break;
+                    case 'temperaturePerTick': artefactTemplate.HeatComfort = value; break;
+                    case 'shockPerTick': artefactTemplate.Shock = value; break;
+                    case 'cutsPerTick': artefactTemplate.Bleeding = value; break;
+                    case 'zombieDamageAbsorption': artefactTemplate.Protection.InfectedResistCount = value; break;
+                    case 'animalDamageAbsorption': artefactTemplate.Protection.AnimalResistCount = value; break;
+                    case 'legFracture': artefactTemplate.BrokenLegs = value; break;
+                    case 'gravityAnomalyProtection': artefactTemplate.AnomProtect.ProtectGraviAnomaly = value; break;
+                    case 'thermalAnomalyProtection': artefactTemplate.AnomProtect.ProtectFireAnomaly = value; break;
+                    case 'electricAnomalyProtection': artefactTemplate.AnomProtect.ProtectElectraAnomaly = value; break;
+                    case 'chemicalAnomalyProtection': artefactTemplate.AnomProtect.ProtectHimicAnomaly = value; break;
+                }
+            });
+
+            return artefactTemplate;
+        }
+
+        function displayArtefacts(artefactNames) {
+            usedCombinations = [];
+            const detailsDiv = document.getElementById('artefact-details');
+            detailsDiv.innerHTML = '';
+            const generatedConfig = ['// ON_Artefacts_Pack/Scripts/4_World/ArtefactsEffects.c', 'class ArtefactEffects', '{'];
+            const jsonOutput = {
+                CheckArtsInInventoryTime: 10,
+                MaxProtectRadiationPercent: 50.0,
+                MaxMultiplierRangPoint: 2.5,
+                MaxMultiplierReputationPoint: 1.5,
+                Artefacts: []
+            };
+            const levelsMap = {};
+
+            artefactNames.forEach(name => {
+                const cleanName = name.replace('ON_Art_', '');
+                const comment = cleanName.replace(/_/g, ' ');
+                const levels = generateArtefactProperties();
+                levelsMap[cleanName] = levels;
+                
+                const artefactDiv = document.createElement('div');
+                artefactDiv.className = 'bg-gray-700 p-4 rounded-lg';
+                artefactDiv.innerHTML = `<h2 class="text-2xl font-semibold mb-4">ON_Art_${cleanName}</h2>`;
+                
+                const levelsDiv = document.createElement('div');
+                levelsDiv.className = 'grid grid-cols-1 md:grid-cols-4 gap-4';
+                
+                levels.forEach((level, index) => {
+                    const card = document.createElement('div');
+                    card.className = 'bg-gray-800 p-4 rounded-lg shadow-lg';
+                    card.innerHTML = `
+                        <h3 class="text-lg font-semibold mb-2">Tier ${index + 1}</h3>
+                        <ul class="text-sm">
+                            ${Object.entries(level).map(([key, value]) => `
+                                <li>${key}: <span class="${isPositiveEffect(key, value) ? 'text-green-400' : 'text-red-400'}">${value}</span></li>
+                            `).join('')}
+                        </ul>
+                    `;
+                    levelsDiv.appendChild(card);
+
+                    generatedConfig.push(`    class Static_ON_Art_${cleanName}_T${index + 1}`);
+                    generatedConfig.push('    {');
+                    Object.entries(level).forEach(([key, value]) => {
+                        generatedConfig.push(`        ${key} = ${value};`);
+                    });
+                    generatedConfig.push('    };');
+
+                    const jsonArtefact = mapPropertiesToJson(level, `${cleanName}_T${index + 1}`, `${comment} T${index + 1}`);
+                    jsonArtefact.Classname = `ON_Art_${cleanName}_T${index + 1}`;
+                    jsonOutput.Artefacts.push(jsonArtefact);
+                });
+                
+                artefactDiv.appendChild(levelsDiv);
+                detailsDiv.appendChild(artefactDiv);
+            });
+
+            generatedConfig.push('}');
+            const configText = generatedConfig.join('\n');
+
+            const configOutput = document.getElementById('config-output');
+            const configTextArea = document.getElementById('config-text');
+            configTextArea.value = configText;
+            configOutput.classList.remove('hidden');
+
+            if (usedCombinations.length >= 715) {
+                alert('Внимание: Уникальные комбинации свойств исчерпаны. Некоторые артефакты могут иметь повторяющиеся наборы свойств.');
+            }
+
+            const copyBtn = document.getElementById('copy-btn');
+            const downloadJsonBtn = document.getElementById('download-json-btn');
+            const downloadCppBtn = document.getElementById('download-cpp-btn');
+            copyBtn.classList.remove('hidden');
+            downloadJsonBtn.classList.remove('hidden');
+            downloadCppBtn.classList.remove('hidden');
+
+            copyBtn.onclick = () => {
+                try {
+                    navigator.clipboard.writeText(configText).then(() => {
+                        alert('Конфиг .c скопирован в буфер обмена!');
+                    }).catch(err => {
+                        alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
+                        console.error('Clipboard error:', err);
+                    });
+                } catch (err) {
+                    alert('Не удалось скопировать в буфер обмена. Пожалуйста, скопируйте текст из поля ниже вручную.');
+                    console.error('Clipboard error:', err);
+                }
+            };
+
+            downloadJsonBtn.onclick = () => {
+                const blob = new Blob([JSON.stringify(jsonOutput, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'ArtEffects.json';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            downloadCppBtn.onclick = () => {
+                const cppText = generateCppConfig(artefactNames, levelsMap);
+                const blob = new Blob([cppText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'config.cpp';
+                a.click();
+                URL.revokeObjectURL(url);
+            };
+
+            return configText;
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const names = e.target.result.split('\n').map(name => name.trim()).filter(name => name);
+                    if (names.length > 0) {
+                        document.getElementById('artefact-list').value = names.join('\n');
+                    }
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        function handleGenerate() {
+            const textInput = document.getElementById('artefact-list').value;
+            const names = textInput.split('\n').map(name => name.trim()).filter(name => name);
+            if (names.length === 0) {
+                alert('Пожалуйста, загрузите файл или введите имена артефактов.');
+                return;
+            }
+
+            displayArtefacts(names);
+        }
+
+        document.getElementById('artefact-file').addEventListener('change', handleFileUpload);
+        document.getElementById('generate-btn').addEventListener('click', handleGenerate);
+    </script>
+</body>
+</html>
