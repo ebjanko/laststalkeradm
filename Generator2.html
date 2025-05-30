@@ -509,26 +509,29 @@
                 const levels = levelsMap[cleanName];
 
                 levels.forEach((level, index) => {
-                    const tier = index + 1;
-                    const radValue = level.radiationPerTick || 0;
-                    mhConfig.artefacts.push({
-                        containers: [],
-                        classname: `ON_Art_${cleanName}_T${tier}`,
-                        hpeffect: 0.0,
-                        eat: 0.0,
-                        water: 0.0,
-                        bloodeffect: 0.0,
-                        shockeffect: 0.0,
-                        temperature: 0,
-                        bleedingchanse: 0,
-                        bleedingfixchanse: 0,
-                        legbrakechanse: 0,
-                        coughchanse: 0.0,
-                        legfixchanse: 0,
-                        rad: radValue,
-                        stamina: 0,
-                        healthModifier: 0
-                    });
+                    const radValue = level.radiationPerTick;
+                    // Включаем только артефакты с radiationPerTick != 0
+                    if (radValue !== undefined && radValue !== 0) {
+                        const tier = index + 1;
+                        mhConfig.artefacts.push({
+                            containers: [],
+                            classname: `ON_Art_${cleanName}_T${tier}`,
+                            hpeffect: 0.0,
+                            eat: 0.0,
+                            water: 0.0,
+                            bloodeffect: 0.0,
+                            shockeffect: 0.0,
+                            temperature: 0,
+                            bleedingchanse: 0,
+                            bleedingfixchanse: 0,
+                            legbrakechanse: 0,
+                            coughchanse: 0.0,
+                            legfixchanse: 0,
+                            rad: radValue,
+                            stamina: 0,
+                            healthModifier: 0
+                        });
+                    }
                 });
             });
 
