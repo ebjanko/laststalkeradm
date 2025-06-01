@@ -1,0 +1,227 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Редактор скриптов DayZ (Простая версия)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+    <div class="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full">
+        <h1 class="text-2xl font-bold mb-4 text-center">Редактор скриптов DayZ</h1>
+        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального движения.</p>
+        <input type="file" multiple accept=".c" id="fileInput" class="mb-4 p-2 border rounded w-full">
+        <div id="fileList" class="mb-4"></div>
+        <button id="downloadButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded w-full hidden">Скачать измененные файлы</button>
+    </div>
+    <script>
+        const fileInput = document.getElementById('fileInput');
+        const fileList = document.getElementById('fileList');
+        const downloadButton = document.getElementById('downloadButton');
+        let outputFiles = [];
+
+        fileInput.addEventListener('change', (event) => {
+            const uploadedFiles = Array.from(event.target.files);
+            fileList.innerHTML = '<h2 class="text-lg font-semibold">Загруженные файлы:</h2><ul class="list-disc pl-5">' + 
+                uploadedFiles.map(file => `<li class="text-gray-700">${file.name}</li>`).join('') + 
+                '</ul>';
+
+            const readFiles = uploadedFiles.map(file => 
+                new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve({ name: file.name, content: reader.result });
+                    reader.readAsText(file);
+                })
+            );
+
+            Promise.all(readFiles).then(fileData => {
+                outputFiles = fileData.map(file => {
+                    let content = file.content;
+
+                    // Добавление переменных для анимации
+                    const variables = `
+    // Переменные для анимации подлета и спирального движения
+    protected bool m_CanHover = true;
+    protected vector m_GroundPosition;
+    protected float m_AnimTicker = 0;
+    protected float m_AnimDurationInSec = 3;
+    protected int m_AnimTimeInMs = 1;
+    protected int m_EasingSign = 1;
+    protected float m_YAmplitude = 0.05;
+    protected float m_Angle = 1;
+    protected float m_SpiralRadius = 0.05;
+    protected float m_SpiralSpeed = 1;
+                    `;
+                    const classMatch = content.match(/class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/);
+                    if (classMatch) {
+                        content = content.replace(classMatch[0], `${classMatch[0]}\n${variables}`);
+                    }
+
+                    // Добавление методов анимации
+                    const animationMethods = `
+    // Методы анимации
+    protected void AnimationInit()
+    {
+        m_AnimDurationInSec = 1;
+        m_YAmplitude = 0.15;
+        m_CanHover = true;
+        SignSwitched();
+    }
+
+    protected void HoveringHandler()
+    {
+        if (m_CanHover)
+        {
+            m_GroundPosition = GetPosition();
+            GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).CallLater(HoveringAnim, m_AnimTimeInMs, true);
+            return;
+        }
+
+        GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);
+        m_AnimTicker = 0;
+    }
+
+    protected void HoveringAnim()
+    {
+        m_AnimTicker += m_EasingSign * (m_AnimTimeInMs / 100) / m_AnimDurationInSec;
+
+        vector mat[4];
+        GetTransform(mat);
+
+        m_Angle += m_SpiralSpeed * 0.01;
+        mat[3][0] = m_GroundPosition[0] + m_SpiralRadius * Math.Cos(m_Angle);
+        mat[3][2] = m_GroundPosition[2] + m_SpiralRadius * Math.Sin(m_Angle);
+
+        mat[3][1] = m_GroundPosition[1] + YEasing(m_AnimTicker);
+        MoveInTime(mat, m_AnimTimeInMs);
+
+        if (m_AnimTicker >= 1)
+        {
+            m_EasingSign = -1;
+            SignSwitched();
+            return;
+        }
+
+        if (m_AnimTicker <= 0)
+        {
+            m_EasingSign = 1;
+            SignSwitched();
+        }
+    }
+
+    protected float YEasing(float tick)
+    {
+        return m_YAmplitude * Math.Sin(Math.PI * tick);
+    }
+
+    protected void SignSwitched()
+    {
+        m_AnimDurationInSec = Math.RandomIntInclusive(3, 15);
+        m_YAmplitude = Math.RandomFloatInclusive(0.15, 2);
+    }
+                    `;
+                    content = content.replace(/}\s*$/, `${animationMethods}\n}`);
+
+                    // Замена вызова Anim в EEInit
+                    content = content.replace(
+                        /GetGame\(\)\.GetCallQueue\(CALL_CATEGORY_GAMEPLAY\)\.CallLater\(Anim, 10, false\);/,
+                        `AnimationInit();\n\t\tHoveringHandler();`
+                    );
+
+                    // Добавление EEItemLocationChanged
+                    const eeItemLocationChanged = `
+    override void EEItemLocationChanged(notnull InventoryLocation oldLoc, notnull InventoryLocation newLoc)
+    {
+        super.EEItemLocationChanged(oldLoc, newLoc);
+
+        if (!GetGame().IsDedicatedServer())
+        {
+            m_GroundPosition = GetPosition();
+            if (newLoc.GetType() == InventoryLocationType.GROUND)
+            {
+                HoveringHandler();
+            }
+            else
+            {
+                GetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);
+            }
+        }
+    }
+                    `;
+                    content = content.replace(
+                        /override void EEDelete\(EntityAI parent\)\s*{/,
+                        `${eeItemLocationChanged}\n\n    override void EEDelete(EntityAI parent)\n    {`
+                    );
+
+                    // Добавление удаления HoveringAnim в EEDelete
+                    content = content.replace(
+                        /StopWork\(\);\s*}/,
+                        `StopWork();\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}`
+                    );
+
+                    // Удаление метода Anim
+                    content = content.replace(
+                        /void Anim\(\)\s*{[^}]*GetGame\(\)\.GetCallQueue\(CALL_CATEGORY_GAMEPLAY\)\.CallLater\(Anim, 10, false\);\s*}\s*/,
+                        ''
+                    );
+
+                    return { name: file.name, content };
+                });
+
+                downloadButton.classList.remove('hidden');
+            });
+        });
+
+        downloadButton.addEventListener('click', () => {
+            outputFiles.forEach(file => {
+                const blob = new Blob([file.content], { type: 'text/x-csrc' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                a.click();
+                URL.revokeObjectURL(url);
+            });
+        });
+    </script>
+</body>
+</html>
