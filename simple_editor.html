@@ -44,18 +44,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Редактор скриптов DayZ (Простая версия)</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
     <div class="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full">
         <h1 class="text-2xl font-bold mb-4 text-center">Редактор скриптов DayZ</h1>
-        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального движения.</p>
+        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального движения. Обработанные файлы будут скачаны в ZIP-архиве.</p>
         <input type="file" multiple accept=".c" id="fileInput" class="mb-4 p-2 border rounded w-full">
         <div id="fileList" class="mb-4"></div>
-        <button id="downloadButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded w-full hidden">Скачать измененные файлы</button>
+        <div id="errorMessages" class="mb-4 text-red-600"></div>
+        <button id="downloadButton" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded w-full hidden">Скачать ZIP-архив</button>
     </div>
     <script>
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
+        const errorMessages = document.getElementById('errorMessages');
         const downloadButton = document.getElementById('downloadButton');
         let outputFiles = [];
 
@@ -64,6 +67,7 @@
             fileList.innerHTML = '<h2 class="text-lg font-semibold">Загруженные файлы:</h2><ul class="list-disc pl-5">' + 
                 uploadedFiles.map(file => `<li class="text-gray-700">${file.name}</li>`).join('') + 
                 '</ul>';
+            errorMessages.innerHTML = '';
 
             const readFiles = uploadedFiles.map(file => 
                 new Promise((resolve) => {
@@ -76,6 +80,14 @@
             Promise.all(readFiles).then(fileData => {
                 outputFiles = fileData.map(file => {
                     let content = file.content;
+                    let errors = [];
+
+                    // Проверка наличия класса
+                    const classMatch = content.match(/class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/);
+                    if (!classMatch) {
+                        errors.push(`Файл ${file.name}: Не найден класс, наследующий ItemBase`);
+                        return { name: file.name, content, errors };
+                    }
 
                     // Добавление переменных для анимации
                     const variables = `
@@ -91,10 +103,10 @@
     protected float m_SpiralRadius = 0.05;
     protected float m_SpiralSpeed = 1;
                     `;
-                    const classMatch = content.match(/class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/);
-                    if (classMatch) {
-                        content = content.replace(classMatch[0], `${classMatch[0]}\n${variables}`);
-                    }
+                    content = content.replace(classMatch[0], `${classMatch[0]}\n${variables}`);
+
+                    // Удаление m_TimeStamp, если присутствует
+                    content = content.replace(/private\s+int\s+m_TimeStamp\s*;/, '');
 
                     // Добавление методов анимации
                     const animationMethods = `
@@ -161,18 +173,47 @@
                     `;
                     content = content.replace(/}\s*$/, `${animationMethods}\n}`);
 
-                    // Замена вызова Anim в EEInit
+                    // Удаление метода Anim, если он есть
                     content = content.replace(
-                        /GetGame\(\)\.GetCallQueue\(CALL_CATEGORY_GAMEPLAY\)\.CallLater\(Anim, 10, false\);/,
-                        `AnimationInit();\n\t\tHoveringHandler();`
+                        /void Anim\(\)\s*{[^}]*GetGame\(\)\.GetCallQueue\(CALL_CATEGORY_GAMEPLAY\)\.CallLater\(Anim, 10, false\);\s*}\s*/,
+                        ''
                     );
 
-                    // Добавление EEItemLocationChanged
-                    const eeItemLocationChanged = `
+                    // Удаление m_TimeStamp = GetGame().GetTime();
+                    content = content.replace(/m_TimeStamp\s*=\s*GetGame\(\)\.GetTime\(\);\s*/, '');
+
+                    // Обработка EEInit или DeferredInit
+                    let initMethod = content.match(/override void (EEInit|DeferredInit)\(\)\s*{/);
+                    if (initMethod) {
+                        const methodName = initMethod[1];
+                        // Проверяем, есть ли уже AnimationInit и HoveringHandler
+                        if (!content.includes('AnimationInit();') && !content.includes('HoveringHandler();')) {
+                            // Находим конец блока if (!GetGame().IsDedicatedServer())
+                            const ifBlockMatch = content.match(/if\s*\(!GetGame\(\)\.IsDedicatedServer\(\)\)\s*{([^}]*)}/);
+                            if (ifBlockMatch) {
+                                const ifBlockContent = ifBlockMatch[1];
+                                content = content.replace(
+                                    ifBlockMatch[0],
+                                    `if (!GetGame().IsDedicatedServer())\n{\n${ifBlockContent}\n\t\tAnimationInit();\n\t\tHoveringHandler();\n}`
+                                );
+                            } else {
+                                // Если if-блок отсутствует, добавляем его
+                                content = content.replace(
+                                    `override void ${methodName}()\n{`,
+                                    `override void ${methodName}()\n{\n\tsuper.${methodName}();\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tAnimationInit();\n\t\tHoveringHandler();\n\t}`
+                                );
+                            }
+                        }
+                    } else {
+                        errors.push(`Файл ${file.name}: Не найден метод EEInit или DeferredInit`);
+                    }
+
+                    // Добавление EEItemLocationChanged, если его нет
+                    if (!content.includes('EEItemLocationChanged')) {
+                        const eeItemLocationChanged = `
     override void EEItemLocationChanged(notnull InventoryLocation oldLoc, notnull InventoryLocation newLoc)
     {
         super.EEItemLocationChanged(oldLoc, newLoc);
-
         if (!GetGame().IsDedicatedServer())
         {
             m_GroundPosition = GetPosition();
@@ -186,38 +227,57 @@
             }
         }
     }
-                    `;
-                    content = content.replace(
-                        /override void EEDelete\(EntityAI parent\)\s*{/,
-                        `${eeItemLocationChanged}\n\n    override void EEDelete(EntityAI parent)\n    {`
-                    );
+                        `;
+                        content = content.replace(
+                            /override void EEDelete\(EntityAI parent\)\s*{/,
+                            `${eeItemLocationChanged}\n\n    override void EEDelete(EntityAI parent)\n    {`
+                        );
+                    }
 
-                    // Добавление удаления HoveringAnim в EEDelete
-                    content = content.replace(
-                        /StopWork\(\);\s*}/,
-                        `StopWork();\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}`
-                    );
+                    // Обновление EEDelete для добавления Remove(HoveringAnim) с правильным форматированием
+                    if (content.includes('override void EEDelete(EntityAI parent)')) {
+                        if (!content.includes('Remove(HoveringAnim)')) {
+                            content = content.replace(
+                                /if\s*\(!GetGame\(\)\.IsDedicatedServer\(\)\)\s*{([^}]*)}/,
+                                `if (!GetGame().IsDedicatedServer())\n{\n$1\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n}`
+                            );
+                        }
+                    } else {
+                        errors.push(`Файл ${file.name}: Не найден метод EEDelete`);
+                    }
 
-                    // Удаление метода Anim
-                    content = content.replace(
-                        /void Anim\(\)\s*{[^}]*GetGame\(\)\.GetCallQueue\(CALL_CATEGORY_GAMEPLAY\)\.CallLater\(Anim, 10, false\);\s*}\s*/,
-                        ''
-                    );
+                    if (errors.length > 0) {
+                        errorMessages.innerHTML += `<p>Ошибки в ${file.name}: ${errors.join('; ')}</p>`;
+                    }
 
-                    return { name: file.name, content };
+                    return { name: file.name, content, errors };
                 });
 
+                if (outputFiles.some(file => file.errors && file.errors.length > 0)) {
+                    errorMessages.innerHTML += '<p class="font-semibold">Внимание: Некоторые файлы содержат ошибки, проверьте их перед использованием.</p>';
+                }
                 downloadButton.classList.remove('hidden');
             });
         });
 
         downloadButton.addEventListener('click', () => {
-            outputFiles.forEach(file => {
-                const blob = new Blob([file.content], { type: 'text/x-csrc' });
+            const zip = new JSZip();
+            let validFiles = outputFiles.filter(file => !file.errors || file.errors.length === 0);
+
+            if (validFiles.length === 0) {
+                errorMessages.innerHTML += '<p class="font-semibold">Нет файлов без ошибок для скачивания.</p>';
+                return;
+            }
+
+            validFiles.forEach(file => {
+                zip.file(file.name, file.content);
+            });
+
+            zip.generateAsync({ type: 'blob' }).then(blob => {
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = file.name;
+                a.download = `modified_dayz_scripts_${new Date().toISOString().replace(/[:.]/g, '-')}.zip`;
                 a.click();
                 URL.revokeObjectURL(url);
             });
