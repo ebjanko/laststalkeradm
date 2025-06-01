@@ -45,11 +45,13 @@
     <title>Редактор скриптов DayZ (Простая версия)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Добавлена библиотека XLSX, если она нужна -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
     <div class="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full">
         <h1 class="text-2xl font-bold mb-4 text-center">Редактор скриптов DayZ</h1>
-        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального движения. Обработанные файлы будут скачаны в ZIP-архиве.</p>
+        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального двжения. Обработанные файлы будут скачаны в ZIP-архиве.</p>
         <input type="file" multiple accept=".c" id="fileInput" class="mb-4 p-2 border rounded w-full">
         <div id="fileList" class="mb-4"></div>
         <div id="changeLog" class="mb-4 text-gray-700"></div>
@@ -260,18 +262,18 @@
                     if (content.includes('override void EEDelete(EntityAI parent)')) {
                         if (!content.includes('Remove(HoveringAnim)')) {
                             // Ищем блок if внутри EEDelete
-                            const eeDeleteIfBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{([\s\S]*?)}\s*(?=[^\s]*})/);
+                            const eeDeleteIfBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{\s*([\s\S]*?)\s*}/);
                             if (eeDeleteIfBlockMatch) {
                                 const ifBlockContent = eeDeleteIfBlockMatch[1];
                                 content = content.replace(
                                     eeDeleteIfBlockMatch[0],
-                                    `if (!GetGame().IsDedicatedServer()) {\n${ifBlockContent}\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n}`
+                                    `if (!GetGame().IsDedicatedServer()) {\n\t${ifBlockContent}\n\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n}`
                                 );
                                 changes.push('Добавлен Remove(HoveringAnim) в EEDelete');
                             } else {
                                 // Если if-блок отсутствует, добавляем его после super.EEDelete
                                 content = content.replace(
-                                    /(override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{[\s]*super\.EEDelete\s*\(\s*parent\s*\)\s*;\s*)/,
+                                    /(override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{\s*super\.EEDelete\s*\(\s*parent\s*\)\s*;\s*)/,
                                     `$1\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}`
                                 );
                                 changes.push('Добавлен блок if и Remove(HoveringAnim) в EEDelete');
