@@ -184,7 +184,7 @@
                     content = content.replace(/}\s*$/, `${animationMethods}\n}`);
                     changes.push('Добавлены методы анимации');
 
-                    // Удаление метода Anim (более устойчивое регулярное выражение)
+                    // Удаление метода Anim
                     const animMethodRegex = /void\s+Anim\s*\(\s*\)\s*{[\s\S]*?GetGame\s*\(\s*\)\s*\.\s*GetCallQueue\s*\(\s*CALL_CATEGORY_GAMEPLAY\s*\)\s*\.\s*CallLater\s*\(\s*Anim\s*,\s*10\s*,\s*false\s*\)\s*;\s*}\s*/;
                     if (animMethodRegex.test(content)) {
                         content = content.replace(animMethodRegex, '');
@@ -208,7 +208,7 @@
                             const ifBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{([\s\S]*?)}/);
                             if (ifBlockMatch) {
                                 const ifBlockContent = ifBlockMatch[1];
-                                // Проверяем, нет ли уже AnimationInit и HoveringHandler в блоке
+                                // Проверяем, нет ли уже AnimationInit и HoveringHandler
                                 if (!ifBlockContent.includes('AnimationInit()') && !ifBlockContent.includes('HoveringHandler()')) {
                                     content = content.replace(
                                         ifBlockMatch[0],
@@ -259,19 +259,23 @@
                     // Обновление EEDelete для добавления Remove(HoveringAnim)
                     if (content.includes('override void EEDelete(EntityAI parent)')) {
                         if (!content.includes('Remove(HoveringAnim)')) {
-                            const eeDeleteIfBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{([\s\S]*?)}/);
+                            // Проверяем наличие блока if
+                            const eeDeleteIfBlockMatch = content.match(/override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{[\s\S]*?if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{([\s\S]*?)}\s*}/);
                             if (eeDeleteIfBlockMatch) {
                                 const ifBlockContent = eeDeleteIfBlockMatch[1];
                                 content = content.replace(
                                     eeDeleteIfBlockMatch[0],
-                                    `if (!GetGame().IsDedicatedServer())\n{\n${ifBlockContent}\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n}`
+                                    eeDeleteIfBlockMatch[0].replace(
+                                        ifBlockContent,
+                                        `${ifBlockContent}\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);`
+                                    )
                                 );
                                 changes.push('Добавлен Remove(HoveringAnim) в EEDelete');
                             } else {
                                 // Если if-блок отсутствует, добавляем его
                                 content = content.replace(
-                                    /override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{\s*super\.EEDelete\s*\(\s*parent\s*\)\s*;/,
-                                    `override void EEDelete(EntityAI parent)\n{\n\tsuper.EEDelete(parent);\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}`
+                                    /(override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{[\s\S]*?)(\s*})/,
+                                    `$1\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}\n$2`
                                 );
                                 changes.push('Добавлен блок if и Remove(HoveringAnim) в EEDelete');
                             }
