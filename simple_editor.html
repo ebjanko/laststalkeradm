@@ -45,11 +45,13 @@
     <title>Редактор скриптов DayZ (Простая версия)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Добавлена библиотека XLSX, если она нужна -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body class="bg-gray-100 min-h-screen flex items-center justify-center">
     <div class="bg-white p-6 rounded-lg shadow-lg max-w-2xl w-full">
         <h1 class="text-2xl font-bold mb-4 text-center">Редактор скриптов DayZ</h1>
-        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального двжения. Обработанные файлы будут скачаны в ZIP-архиве.</p>
+        <p class="mb-4 text-gray-600">Загрузите файлы .c для добавления анимации подлета и спирального движения. Обработанные файлы будут скачаны в ZIP-архиве.</p>
         <input type="file" multiple accept=".c" id="fileInput" class="mb-4 p-2 border rounded w-full">
         <div id="fileList" class="mb-4"></div>
         <div id="changeLog" class="mb-4 text-gray-700"></div>
@@ -85,17 +87,16 @@
                     let content = file.content;
                     let errors = [];
                     let changes = [];
-                    let lines = content.split('\n');
 
                     // Проверка наличия класса
-                    if (!lines.some(line => /class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/.test(line))) {
+                    const classMatch = content.match(/class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/);
+                    if (!classMatch) {
                         errors.push(`Не найден класс, наследующий ItemBase`);
                         return { name: file.name, content, errors, changes };
                     }
                     changes.push('Найден класс, наследующий ItemBase');
 
                     // Добавление переменных для анимации
-                    const classMatch = content.match(/class\s+ON_Art_[^\s]+\s+extends\s+ItemBase\s*{/);
                     const variables = `
     // Переменные для анимации подлета и спирального движения
     protected bool m_CanHover = true;
@@ -186,45 +187,51 @@
                     changes.push('Добавлены методы анимации');
 
                     // Удаление метода Anim
-                    content = content.replace(/void\s+Anim\s*\(\s*\)\s*{[\s\S]*?GetGame\s*\(\s*\)\s*\.\s*GetCallQueue\s*\(\s*CALL_CATEGORY_GAMEPLAY\s*\)\s*\.\s*CallLater\s*\(\s*Anim\s*,\s*10\s*,\s*false\s*\)\s*;\s*}\s*/, '');
-                    if (content !== file.content) changes.push('Удалён метод Anim');
+                    const animMethodRegex = /void\s+Anim\s*\(\s*\)\s*{[\s\S]*?GetGame\s*\(\s*\)\s*\.\s*GetCallQueue\s*\(\s*CALL_CATEGORY_GAMEPLAY\s*\)\s*\.\s*CallLater\s*\(\s*Anim\s*,\s*10\s*,\s*false\s*\)\s*;\s*}\s*/;
+                    if (animMethodRegex.test(content)) {
+                        content = content.replace(animMethodRegex, '');
+                        changes.push('Удалён метод Anim');
+                    }
 
-                    // Удаление вызовов Anim
-                    content = content.replace(/GetGame\s*\(\s*\)\s*\.\s*GetCallQueue\s*\(\s*CALL_CATEGORY_GAMEPLAY\s*\)\s*\.\s*CallLater\s*\(\s*Anim\s*,\s*10\s*,\s*false\s*\)\s*;\s*/g, '');
-                    if (content !== file.content) changes.push('Удалены вызовы метода Anim');
+                    // Удаление любых вызовов Anim
+                    const animCallRegex = /GetGame\s*\(\s*\)\s*\.\s*GetCallQueue\s*\(\s*CALL_CATEGORY_GAMEPLAY\s*\)\s*\.\s*CallLater\s*\(\s*Anim\s*,\s*10\s*,\s*false\s*\)\s*;\s*/g;
+                    if (animCallRegex.test(content)) {
+                        content = content.replace(animCallRegex, '');
+                        changes.push('Удалены вызовы метода Anim');
+                    }
 
-                    // Обработка EEInit
-                    lines = content.split('\n');
-                    let eeInitIndex = lines.findIndex(line => /override\s+void\s+EEInit\s*\(\s*\)\s*{/.test(line));
-                    if (eeInitIndex !== -1) {
-                        let ifBlockIndex = lines.findIndex((line, i) => i > eeInitIndex && /if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)/.test(line));
-                        if (ifBlockIndex !== -1) {
-                            let braceCount = 0;
-                            let ifBlockEnd = -1;
-                            for (let i = ifBlockIndex; i < lines.length; i++) {
-                                if (lines[i].includes('{')) braceCount++;
-                                if (lines[i].includes('}')) braceCount--;
-                                if (braceCount === 0) {
-                                    ifBlockEnd = i;
-                                    break;
+                    // Обработка EEInit или DeferredInit
+                    let initMethod = content.match(/override\s+void\s+(EEInit|DeferredInit)\s*\(\s*\)\s*{/);
+                    if (initMethod) {
+                        const methodName = initMethod[1];
+                        // Проверяем, есть ли уже AnimationInit и HoveringHandler
+                        if (!content.includes('AnimationInit();') || !content.includes('HoveringHandler();')) {
+                            // Находим блок if (!GetGame().IsDedicatedServer())
+                            const ifBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{([\s\S]*?)}/);
+                            if (ifBlockMatch) {
+                                const ifBlockContent = ifBlockMatch[1];
+                                // Проверяем, нет ли уже AnimationInit и HoveringHandler
+                                if (!ifBlockContent.includes('AnimationInit()') && !ifBlockContent.includes('HoveringHandler()')) {
+                                    content = content.replace(
+                                        ifBlockMatch[0],
+                                        `if (!GetGame().IsDedicatedServer())\n{\n${ifBlockContent}\n\t\tAnimationInit();\n\t\tHoveringHandler();\n}`
+                                    );
+                                    changes.push(`Добавлены AnimationInit() и HoveringHandler() в ${methodName}`);
                                 }
-                            }
-                            if (!lines.slice(ifBlockIndex, ifBlockEnd + 1).join('\n').includes('AnimationInit()')) {
-                                lines.splice(ifBlockEnd, 0, '\t\t\tAnimationInit();', '\t\t\tHoveringHandler();');
-                                changes.push('Добавлены AnimationInit() и HoveringHandler() в EEInit');
-                            }
-                        } else {
-                            let superIndex = lines.findIndex((line, i) => i > eeInitIndex && /super\.EEInit\s*\(\s*\)\s*;/.test(line));
-                            if (superIndex !== -1) {
-                                lines.splice(superIndex + 1, 0, '\t\tif (!GetGame().IsDedicatedServer())', '\t\t{', '\t\t\tAnimationInit();', '\t\t\tHoveringHandler();', '\t\t}');
-                                changes.push('Добавлен блок if с AnimationInit() и HoveringHandler() в EEInit');
+                            } else {
+                                // Если if-блок отсутствует, добавляем его
+                                content = content.replace(
+                                    `override void ${methodName}()\n{`,
+                                    `override void ${methodName}()\n{\n\tsuper.${methodName}();\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tAnimationInit();\n\t\tHoveringHandler();\n\t}`
+                                );
+                                changes.push(`Добавлен блок if и вызовы AnimationInit(), HoveringHandler() в ${methodName}`);
                             }
                         }
                     } else {
-                        errors.push('Не найден метод EEInit');
+                        errors.push(`Не найден метод EEInit или DeferredInit`);
                     }
 
-                    // Добавление EEItemLocationChanged
+                    // Добавление EEItemLocationChanged, если его нет
                     if (!content.includes('EEItemLocationChanged')) {
                         const eeItemLocationChanged = `
     override void EEItemLocationChanged(notnull InventoryLocation oldLoc, notnull InventoryLocation newLoc)
@@ -244,44 +251,37 @@
         }
     }
                         `;
-                        let eeDeleteIndex = lines.findIndex(line => /override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{/.test(line));
-                        if (eeDeleteIndex !== -1) {
-                            lines.splice(eeDeleteIndex, 0, eeItemLocationChanged);
-                            changes.push('Добавлен метод EEItemLocationChanged');
-                        }
+                        content = content.replace(
+                            /override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{/,
+                            `${eeItemLocationChanged}\n\n    override void EEDelete(EntityAI parent)\n    {`
+                        );
+                        changes.push('Добавлен метод EEItemLocationChanged');
                     }
 
-                    // Обновление EEDelete
-                    let eeDeleteIndex = lines.findIndex(line => /override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{/.test(line));
-                    if (eeDeleteIndex !== -1) {
-                        let ifBlockIndex = lines.findIndex((line, i) => i > eeDeleteIndex && /if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)/.test(line));
-                        if (ifBlockIndex !== -1) {
-                            let braceCount = 0;
-                            let ifBlockEnd = -1;
-                            for (let i = ifBlockIndex; i < lines.length; i++) {
-                                if (lines[i].includes('{')) braceCount++;
-                                if (lines[i].includes('}')) braceCount--;
-                                if (braceCount === 0) {
-                                    ifBlockEnd = i;
-                                    break;
-                                }
-                            }
-                            if (!lines.slice(ifBlockIndex, ifBlockEnd + 1).join('\n').includes('Remove(HoveringAnim)')) {
-                                lines.splice(ifBlockEnd, 0, '\t\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);');
+                    // Обновление EEDelete для добавления Remove(HoveringAnim)
+                    if (content.includes('override void EEDelete(EntityAI parent)')) {
+                        if (!content.includes('Remove(HoveringAnim)')) {
+                            // Ищем блок if внутри EEDelete
+                            const eeDeleteIfBlockMatch = content.match(/if\s*\(!GetGame\s*\(\s*\)\s*\.\s*IsDedicatedServer\s*\(\s*\)\s*\)\s*{\s*([\s\S]*?)\s*}/);
+                            if (eeDeleteIfBlockMatch) {
+                                const ifBlockContent = eeDeleteIfBlockMatch[1];
+                                content = content.replace(
+                                    eeDeleteIfBlockMatch[0],
+                                    `if (!GetGame().IsDedicatedServer()) {\n\t${ifBlockContent}\n\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n}`
+                                );
                                 changes.push('Добавлен Remove(HoveringAnim) в EEDelete');
-                            }
-                        } else {
-                            let superIndex = lines.findIndex((line, i) => i > eeDeleteIndex && /super\.EEDelete\s*\(\s*parent\s*\)\s*;/.test(line));
-                            if (superIndex !== -1) {
-                                lines.splice(superIndex + 1, 0, '\t\tif (!GetGame().IsDedicatedServer())', '\t\t{', '\t\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);', '\t\t}');
+                            } else {
+                                // Если if-блок отсутствует, добавляем его после super.EEDelete
+                                content = content.replace(
+                                    /(override\s+void\s+EEDelete\s*\(\s*EntityAI\s+parent\s*\)\s*{\s*super\.EEDelete\s*\(\s*parent\s*\)\s*;\s*)/,
+                                    `$1\n\tif (!GetGame().IsDedicatedServer())\n\t{\n\t\tGetGame().GetCallQueue(CALL_CATEGORY_GAMEPLAY).Remove(HoveringAnim);\n\t}`
+                                );
                                 changes.push('Добавлен блок if и Remove(HoveringAnim) в EEDelete');
                             }
                         }
                     } else {
-                        errors.push('Не найден метод EEDelete');
+                        errors.push(`Не найден метод EEDelete`);
                     }
-
-                    content = lines.join('\n');
 
                     if (errors.length > 0) {
                         errorMessages.innerHTML += `<p>Ошибки в ${file.name}: ${errors.join('; ')}</p>`;
